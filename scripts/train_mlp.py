@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from hybrid_ai.ann.model import TrainConfig, WearRoughnessModel
+from hybrid_ai.stages.ann.model import TrainConfig, WearRoughnessModel
 from hybrid_ai.core.nasa_loader import load_blended_dataset
 
 

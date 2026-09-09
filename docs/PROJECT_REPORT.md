@@ -60,7 +60,7 @@ so any model can be swapped without touching the rest.
 
 ## 3. How the implementation solves it, stage by stage
 
-### Stage 1 — CLIPS: rule-based tool selection + CAPP (`clips/rules.py`)
+### Stage 1 — CLIPS: rule-based tool selection + CAPP (`stages/clips/rules.py`)
 
 - Reads the part spec (ISO group P/M/K/N/S, operation, machine class,
   hardness, target finish) and applies five hand-authored rules
@@ -94,7 +94,7 @@ predicting the mean, VB R² ≈ 0.76, 71% of predictions within 20 µm.
 The small NASA CNNs are kept for comparison only — 145 windows cannot
 support deep nets, and their tab says so.
 
-### Stage 3 — Fuzzy: machining-state diagnosis (`fuzzy/diagnoser.py`)
+### Stage 3 — Fuzzy: machining-state diagnosis (`stages/fuzzy/diagnoser.py`)
 
 - Maps predicted V_B, R_a and vibration RMS through triangular/
   trapezoidal membership functions (thresholds V_B 0.15/0.30/0.45 mm,
@@ -103,7 +103,7 @@ support deep nets, and their tab says so.
   per-signal membership bars — the operator-readable layer ML alone
   never provides.
 
-### Stage 4 — NSGA-II: multi-objective optimisation (`nsga2/optimiser.py`)
+### Stage 4 — NSGA-II: multi-objective optimisation (`stages/nsga2/optimiser.py`)
 
 - Searches Vc/feed/depth inside the selected tool's envelope for the
   non-dominated set over **max removal rate, max tool life

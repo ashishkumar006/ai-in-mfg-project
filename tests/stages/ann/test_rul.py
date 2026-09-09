@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from hybrid_ai.ann.rul_model import RulModel, RulSeqConfig, RulSequenceModel
+from hybrid_ai.stages.ann.rul_model import RulModel, RulSeqConfig, RulSequenceModel
 from hybrid_ai.core.haas_loader import load_haas, load_haas_sequences
 
 

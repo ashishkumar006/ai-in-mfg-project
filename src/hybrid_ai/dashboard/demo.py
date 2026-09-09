@@ -32,22 +32,22 @@ if str(ROOT) not in sys.path:
 
 import numpy as np
 
-from hybrid_ai.ann.model import (
+from hybrid_ai.stages.ann.model import (
     DLConfig,
     TrainConfig,
     WearRoughnessDL,
     WearRoughnessModel,
     predict_for_point,
 )
-from hybrid_ai.clips.rules import build_capp_sheet, rank_tools
+from hybrid_ai.stages.clips.rules import build_capp_sheet, rank_tools
 from hybrid_ai.core.schemas import OperatingPoint, PartSpec, SensorReading
 from hybrid_ai.core.synthetic import (
     build_default_tool_catalog,
     generate_synthetic_dataset,
     generate_synthetic_sensor,
 )
-from hybrid_ai.fuzzy.diagnoser import FuzzyThresholds, diagnose
-from hybrid_ai.nsga2.optimiser import NsgaConfig, optimise
+from hybrid_ai.stages.fuzzy.diagnoser import FuzzyThresholds, diagnose
+from hybrid_ai.stages.nsga2.optimiser import NsgaConfig, optimise
 
 MODELS_DIR = ROOT / "models"
 
@@ -306,7 +306,7 @@ def _compare_models(model: WearRoughnessModel, out_dir: Path) -> list[dict]:
         rows.append({"model": "CNN-BiLSTM (PHM)",
                      "v_b_mm": f"unavailable ({exc})", "ra_um": "-"})
     try:
-        from hybrid_ai.ann.vicomtech_model import VicomtechTurningModel
+        from hybrid_ai.stages.ann.vicomtech_model import VicomtechTurningModel
         from hybrid_ai.core.vicomtech_loader import load_vicomtech
 
         xv, yv, _ = load_vicomtech(split="test")

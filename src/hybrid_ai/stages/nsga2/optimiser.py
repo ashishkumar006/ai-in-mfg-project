@@ -16,9 +16,9 @@ from typing import Callable
 
 import numpy as np
 
-from hybrid_ai.ann.model import WearRoughnessModel, predict_for_point
+from hybrid_ai.stages.ann.model import WearRoughnessModel, predict_for_point
 from hybrid_ai.core.schemas import OperatingPoint, ParetoSolution, ToolCandidate
-from hybrid_ai.fuzzy.diagnoser import FuzzyThresholds, diagnose
+from hybrid_ai.stages.fuzzy.diagnoser import FuzzyThresholds, diagnose
 
 try:
     from pymoo.algorithms.moo.nsga2 import NSGA2

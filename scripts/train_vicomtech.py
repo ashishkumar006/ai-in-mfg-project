@@ -23,7 +23,7 @@ if str(ROOT / "src") not in sys.path:
 import joblib
 import numpy as np
 
-from hybrid_ai.ann.vicomtech_model import VicomtechConfig, VicomtechTurningModel
+from hybrid_ai.stages.ann.vicomtech_model import VicomtechConfig, VicomtechTurningModel
 from hybrid_ai.core.vicomtech_loader import load_vicomtech
 
 

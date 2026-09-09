@@ -20,14 +20,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from hybrid_ai.ann.model import (
+from hybrid_ai.stages.ann.model import (
     TrainConfig,
     WearRoughnessDL,
     WearRoughnessModel,
     predict_for_point,
 )
-from hybrid_ai.ann.vicomtech_model import VicomtechTurningModel
-from hybrid_ai.clips.rules import build_capp_sheet, build_rules, rank_tools
+from hybrid_ai.stages.ann.vicomtech_model import VicomtechTurningModel
+from hybrid_ai.stages.clips.rules import build_capp_sheet, build_rules, rank_tools
 from hybrid_ai.core.nasa_loader import load_blended_dataset, load_nasa_windows
 from hybrid_ai.core.nasa_loader import load_nasa_eval_set, measured_sensor_from_window
 from hybrid_ai.core.phm_loader import load_phm_windows
@@ -39,8 +39,8 @@ from hybrid_ai.core.synthetic import (
     generate_synthetic_dataset,
     generate_synthetic_sensor,
 )
-from hybrid_ai.fuzzy.diagnoser import diagnose
-from hybrid_ai.nsga2.optimiser import NsgaConfig, optimise
+from hybrid_ai.stages.fuzzy.diagnoser import diagnose
+from hybrid_ai.stages.nsga2.optimiser import NsgaConfig, optimise
 
 ROOT = Path(__file__).resolve().parents[3]
 MODELS_DIR = ROOT / "models"

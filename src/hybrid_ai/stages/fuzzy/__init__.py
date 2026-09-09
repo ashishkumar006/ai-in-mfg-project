@@ -1,4 +1,4 @@
-from hybrid_ai.fuzzy.diagnoser import (
+from hybrid_ai.stages.fuzzy.diagnoser import (
     FuzzyThresholds,
     diagnose,
     state_is_safe,

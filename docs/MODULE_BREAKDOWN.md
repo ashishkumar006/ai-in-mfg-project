@@ -8,10 +8,10 @@ output into the shared dashboard.
 
 | # | Owner | Module | Package path | Notebook |
 |---|---|---|---|---|
-| 1 | M1 — Knowledge Engineer | CLIPS rule base + tool selection | `src/hybrid_ai/clips/` | `notebooks/01_clips.ipynb` |
-| 2 | M2 — ML Engineer | ANN wear/roughness predictor | `src/hybrid_ai/ann/` | `notebooks/02_ann.ipynb` |
-| 3 | M3 — Fuzzy / Diagnostics | Fuzzy state classifier | `src/hybrid_ai/fuzzy/` | `notebooks/03_fuzzy.ipynb` |
-| 4 | M4 — Optimisation | NSGA-II Pareto search | `src/hybrid_ai/nsga2/` | `notebooks/04_nsga2.ipynb` |
+| 1 | M1 — Knowledge Engineer | CLIPS rule base + tool selection | `src/hybrid_ai/stages/clips/` | `notebooks/01_clips.ipynb` |
+| 2 | M2 — ML Engineer | ANN wear/roughness predictor | `src/hybrid_ai/stages/ann/` | `notebooks/02_ann.ipynb` |
+| 3 | M3 — Fuzzy / Diagnostics | Fuzzy state classifier | `src/hybrid_ai/stages/fuzzy/` | `notebooks/03_fuzzy.ipynb` |
+| 4 | M4 — Optimisation | NSGA-II Pareto search | `src/hybrid_ai/stages/nsga2/` | `notebooks/04_nsga2.ipynb` |
 | 5 | M5 — Platform / Data | Shared core, SQLite loader, Streamlit dashboard | `src/hybrid_ai/core/`, `src/hybrid_ai/dashboard/`, `src/hybrid_ai/data/` | `notebooks/00_setup.ipynb` |
 
 ## Per-module deliverables

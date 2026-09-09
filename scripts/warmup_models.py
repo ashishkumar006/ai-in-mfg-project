@@ -19,7 +19,7 @@ if str(ROOT / "src") not in sys.path:
 
 import numpy as np
 
-from hybrid_ai.ann.model import WearRoughnessDL, WearRoughnessModel, predict_for_point
+from hybrid_ai.stages.ann.model import WearRoughnessDL, WearRoughnessModel, predict_for_point
 from hybrid_ai.core.phm_loader import load_phm_windows
 from hybrid_ai.core.schemas import OperatingPoint
 from hybrid_ai.core.synthetic import (

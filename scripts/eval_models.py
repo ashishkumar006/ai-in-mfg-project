@@ -19,7 +19,7 @@ if str(ROOT / "src") not in sys.path:
 import numpy as np
 import torch
 
-from hybrid_ai.ann.model import WearRoughnessDL, WearRoughnessModel, predict_for_point
+from hybrid_ai.stages.ann.model import WearRoughnessDL, WearRoughnessModel, predict_for_point
 from hybrid_ai.core.nasa_loader import load_blended_dataset, load_nasa_windows
 from hybrid_ai.core.phm_loader import load_phm_windows
 from hybrid_ai.core.schemas import OperatingPoint

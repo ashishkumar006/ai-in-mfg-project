@@ -24,7 +24,7 @@ if str(ROOT / "src") not in sys.path:
 
 import numpy as np
 
-from hybrid_ai.ann.model import WearRoughnessDL
+from hybrid_ai.stages.ann.model import WearRoughnessDL
 from hybrid_ai.core.phm_loader import load_phm_windows
 
 OUT = ROOT / "demo_outputs" / "model_test"

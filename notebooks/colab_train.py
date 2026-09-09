@@ -56,7 +56,7 @@ sys.path.insert(0, "/content/src")
 
 # %%
 # Import our modules
-from hybrid_ai.ann.model import (
+from hybrid_ai.stages.ann.model import (
     TrainConfig, DLConfig, WearRoughnessModel, WearRoughnessDL,
 )
 from hybrid_ai.core.nasa_loader import (

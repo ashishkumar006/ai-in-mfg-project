@@ -4,7 +4,7 @@ from pytest import approx
 
 from hybrid_ai.core.schemas import OperatingPoint, ToolCandidate, WearPrediction
 from hybrid_ai.core.synthetic import generate_synthetic_sensor
-from hybrid_ai.fuzzy.diagnoser import FuzzyThresholds, diagnose, state_is_safe
+from hybrid_ai.stages.fuzzy.diagnoser import FuzzyThresholds, diagnose, state_is_safe
 
 
 def _pred(v_b: float, ra: float) -> WearPrediction:

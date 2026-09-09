@@ -19,24 +19,24 @@ PartSpec  →  CLIPS (rules)  →  ANN (MLP)  →  Fuzzy  →  NSGA-II  →  Das
 
 **What each stage uses today:**
 
-- **CLIPS module** (`src/hybrid_ai/clips/rules.py`) — pure Python rule
+- **CLIPS module** (`src/hybrid_ai/stages/clips/rules.py`) — pure Python rule
   predicates: ISO match, operation match, steel-finishing, heavy-
   roughing, superalloy-cautious. Selects from 15 hardcoded `ToolCandidate`
   entries. No CLIPS engine is required; the rule interface mirrors CLIPS
   syntax so a future swap to `clipsPy` is a one-file change.
 
-- **ANN module** (`src/hybrid_ai/ann/model.py`) — PyTorch 2-layer MLP,
+- **ANN module** (`src/hybrid_ai/stages/ann/model.py`) — PyTorch 2-layer MLP,
   `(32, 32)` hidden, Adam optimiser, MSE loss, 60 epochs on 1 200
   synthetic rows. Input is an 11-element vector: V_c, feed, ap, nose
   radius, rake angle, 5-dim ISO one-hot, hardness. Outputs: V_B (mm)
   and R_a (µm), clipped to physical ranges.
 
-- **Fuzzy module** (`src/hybrid_ai/fuzzy/diagnoser.py`) — Mamdani-style
+- **Fuzzy module** (`src/hybrid_ai/stages/fuzzy/diagnoser.py`) — Mamdani-style
   deterministic classifier using triangular and trapezoidal membership
   functions. Three signals: predicted V_B, predicted R_a, vibration
   RMS. Maps to `safe / caution / critical` with a textual explanation.
 
-- **NSGA-II module** (`src/hybrid_ai/nsga2/optimiser.py`) — pymoo
+- **NSGA-II module** (`src/hybrid_ai/stages/nsga2/optimiser.py`) — pymoo
   NSGA-II searching V_c, feed, ap inside the tool's envelope. Objectives:
   maximise MRR, maximise tool life (calibrated `6.0 / V_B`, ~20 min to criterion), minimise
   R_a. Returns a non-dominated Pareto front. Grid-sweep fallback if pymoo

@@ -84,7 +84,7 @@ def test_pareto_returns_front_and_extremes() -> None:
 
 
 def test_safe_only_front_is_all_safe() -> None:
-    from hybrid_ai.fuzzy.diagnoser import diagnose
+    from hybrid_ai.stages.fuzzy.diagnoser import diagnose
 
     body = client.post("/api/pareto", json={
         "part": PART,
@@ -95,7 +95,7 @@ def test_safe_only_front_is_all_safe() -> None:
     assert body["safe_only"] is True
     assert len(body["solutions"]) >= 1
     assert body["extremes"]
-    from hybrid_ai.ann.model import WearRoughnessModel, predict_for_point
+    from hybrid_ai.stages.ann.model import WearRoughnessModel, predict_for_point
     from hybrid_ai.core.schemas import OperatingPoint
     from hybrid_ai.core.synthetic import build_default_tool_catalog
 

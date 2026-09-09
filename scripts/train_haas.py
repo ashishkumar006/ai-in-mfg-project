@@ -23,7 +23,7 @@ if str(ROOT / "src") not in sys.path:
 import numpy as np
 import torch
 
-from hybrid_ai.ann.rul_model import RulModel, RulSeqConfig, RulSequenceModel
+from hybrid_ai.stages.ann.rul_model import RulModel, RulSeqConfig, RulSequenceModel
 from hybrid_ai.core.haas_loader import load_haas, load_haas_sequences
 
 

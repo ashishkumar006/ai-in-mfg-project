@@ -1,4 +1,4 @@
-from hybrid_ai.clips.rules import (
+from hybrid_ai.stages.clips.rules import (
     RULES,
     Rule,
     build_capp_sheet,

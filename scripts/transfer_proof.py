@@ -22,7 +22,7 @@ if str(ROOT / "src") not in sys.path:
 import numpy as np
 import torch
 
-from hybrid_ai.ann.model import DLConfig, WearRoughnessDL, fine_tune_head
+from hybrid_ai.stages.ann.model import DLConfig, WearRoughnessDL, fine_tune_head
 from hybrid_ai.core.phm_loader import load_phm_windows
 
 

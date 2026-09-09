@@ -49,7 +49,7 @@ Everything below keeps working untouched, including both dashboards.
         └───────────────┴───────────────────────┴───────────────┘
                         ▼
               CURRENT PIPELINE (frozen tool layer)
-   clips/ ann/ fuzzy/ nsga2/ core/ — unchanged, still tested,
+   stages/ (clips/ann/fuzzy/nsga2) + core/ — unchanged, still tested,
    still serving :8501 and :8502 exactly as today
 ```
 
@@ -148,7 +148,7 @@ new datasets beyond NUAA, any change to the tool layer's semantics.
 
 ## 7. What stays frozen
 
-`clips/`, `ann/`, `fuzzy/`, `nsga2/`, `core/` (logic + schemas),
+   `stages/` (clips/ann/fuzzy/nsga2), `core/` (logic + schemas),
 `web/api.py` routes and response shapes, both dashboards, all 82
 tests, all checkpoints, `scripts/` recipes. Changes here need the
 same bar as today: tests green, metrics reproduced, docs updated.

@@ -1,4 +1,4 @@
-from hybrid_ai.nsga2.optimiser import (
+from hybrid_ai.stages.nsga2.optimiser import (
     NsgaConfig,
     mrr_cm3_per_min,
     optimise,

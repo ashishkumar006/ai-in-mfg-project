@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from hybrid_ai.ann.model import TrainConfig, WearRoughnessModel
+from hybrid_ai.stages.ann.model import TrainConfig, WearRoughnessModel
 from hybrid_ai.core.schemas import ToolCandidate
 from hybrid_ai.core.synthetic import generate_synthetic_dataset
-from hybrid_ai.nsga2.optimiser import (
+from hybrid_ai.stages.nsga2.optimiser import (
     NsgaConfig,
     mrr_cm3_per_min,
     optimise,
@@ -90,7 +90,7 @@ def test_pareto_front_is_non_dominated() -> None:
 
 
 def test_enforce_safe_returns_only_safe_points() -> None:
-    from hybrid_ai.fuzzy.diagnoser import diagnose
+    from hybrid_ai.stages.fuzzy.diagnoser import diagnose
 
     model = _fitted_model()
     front = optimise(
@@ -105,6 +105,6 @@ def test_enforce_safe_returns_only_safe_points() -> None:
 
 
 def _pred_for(model, point):
-    from hybrid_ai.ann.model import predict_for_point
+    from hybrid_ai.stages.ann.model import predict_for_point
 
     return predict_for_point(model, _tool(), point, hardness_hb=200.0)

@@ -1,4 +1,4 @@
-from hybrid_ai.ann.model import (
+from hybrid_ai.stages.ann.model import (
     DLConfig,
     SklearnBaseline,
     TrainConfig,

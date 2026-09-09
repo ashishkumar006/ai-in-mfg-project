@@ -21,10 +21,17 @@ consistently.
 ## Project layout rules
 
 - All implementation code lives under `src/hybrid_ai/`.
-- Each pipeline stage (CLIPS, ANN, Fuzzy, NSGA-II) gets its own
-  subpackage: `clips/`, `ann/`, `fuzzy/`, `nsga2/`.
+- The **tools layer** (`src/hybrid_ai/tools/`, one module per tool)
+  is the prominent interface: typed `run()` functions + `TOOL_SPEC`
+  dicts consumable by LLMs and MCP. Reference tools first.
+- Pipeline stage engines live **deep** under
+  `src/hybrid_ai/stages/` (`clips/`, `ann/`, `fuzzy/`, `nsga2/`);
+  touch them only when the logic itself must change.
 - Shared data structures live in `src/hybrid_ai/core/`.
-- Streamlit dashboard lives in `src/hybrid_ai/dashboard/`.
+- Agent scaffolding (prompts, registry, loop) lives in
+  `src/hybrid_ai/agent/`.
+- Streamlit dashboard lives in `src/hybrid_ai/dashboard/`; the web
+  API + frontend in `src/hybrid_ai/web/`.
 - Tests mirror the package layout under `tests/`.
 
 ## Dependency policy

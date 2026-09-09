@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from hybrid_ai.ann.model import DLConfig, WearRoughnessDL
-from hybrid_ai.ann.vicomtech_model import VicomtechConfig, VicomtechTurningModel
+from hybrid_ai.stages.ann.model import DLConfig, WearRoughnessDL
+from hybrid_ai.stages.ann.vicomtech_model import VicomtechConfig, VicomtechTurningModel
 from hybrid_ai.core.vicomtech_loader import load_vicomtech
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hybrid_ai.clips.rules import build_capp_sheet, build_rules, rank_tools, select_tools
+from hybrid_ai.stages.clips.rules import build_capp_sheet, build_rules, rank_tools, select_tools
 from hybrid_ai.core.schemas import PartSpec
 from hybrid_ai.core.synthetic import build_default_tool_catalog
 

@@ -5,8 +5,8 @@ Run with::
     streamlit run src/hybrid_ai/dashboard/app.py
 
 The dashboard is a thin presentation layer. The heavy lifting lives in
-``hybrid_ai.clips``, ``hybrid_ai.ann``, ``hybrid_ai.fuzzy`` and
-``hybrid_ai.nsga2``. Models are loaded from ``models/`` checkpoints
+``hybrid_ai.stages.clips``, ``hybrid_ai.stages.ann``, ``hybrid_ai.stages.fuzzy`` and
+``hybrid_ai.stages.nsga2``. Models are loaded from ``models/`` checkpoints
 (blended synthetic + NASA training) and cached with ``st.cache_resource``.
 """
 
@@ -26,15 +26,15 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from hybrid_ai.ann.model import (
+from hybrid_ai.stages.ann.model import (
     DLConfig,
     TrainConfig,
     WearRoughnessDL,
     WearRoughnessModel,
     predict_for_point,
 )
-from hybrid_ai.ann.vicomtech_model import VicomtechTurningModel
-from hybrid_ai.clips.rules import build_capp_sheet, build_rules, rank_tools
+from hybrid_ai.stages.ann.vicomtech_model import VicomtechTurningModel
+from hybrid_ai.stages.clips.rules import build_capp_sheet, build_rules, rank_tools
 from hybrid_ai.core.nasa_loader import (
     NASA_PATH,
     load_blended_dataset,
@@ -54,8 +54,8 @@ from hybrid_ai.core.synthetic import (
     generate_synthetic_dataset,
     generate_synthetic_sensor,
 )
-from hybrid_ai.fuzzy.diagnoser import diagnose
-from hybrid_ai.nsga2.optimiser import NsgaConfig, optimise
+from hybrid_ai.stages.fuzzy.diagnoser import diagnose
+from hybrid_ai.stages.nsga2.optimiser import NsgaConfig, optimise
 
 st.set_page_config(
     page_title="Hybrid AI Manufacturing",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from hybrid_ai.ann.model import (
+from hybrid_ai.stages.ann.model import (
     DLConfig,
     SklearnBaseline,
     TrainConfig,

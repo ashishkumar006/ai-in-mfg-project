@@ -50,7 +50,7 @@ When the user presses **Run pipeline**, the dashboard:
 
 ## Step 1 — CLIPS: rule-based tool selection + CAPP
 
-**Where:** `src/hybrid_ai/clips/rules.py`
+**Where:** `src/hybrid_ai/stages/clips/rules.py`
 
 **Purpose:** Decide which insert to use and what cutting envelope to
 stay inside, before the ANN even runs. This is the "expert system" leg
@@ -95,7 +95,7 @@ recommended envelope, and the planner notes.
 
 ## Step 2 — ANN: predict flank wear and surface roughness
 
-**Where:** `src/hybrid_ai/ann/model.py`
+**Where:** `src/hybrid_ai/stages/ann/model.py`
 
 **Purpose:** Given the chosen tool and any candidate operating point,
 predict the two outcomes we care about:
@@ -151,7 +151,7 @@ the **Diagnosis tab**.
 
 ## Step 3 — Fuzzy: classify the machining state
 
-**Where:** `src/hybrid_ai/fuzzy/diagnoser.py`
+**Where:** `src/hybrid_ai/stages/fuzzy/diagnoser.py`
 
 **Purpose:** Turn the ANN's continuous predictions into a discrete,
 human-readable state. This is the "interpretability" leg of the
@@ -196,7 +196,7 @@ memberships.
 
 ## Step 4 — NSGA-II: find the Pareto front
 
-**Where:** `src/hybrid_ai/nsga2/optimiser.py`
+**Where:** `src/hybrid_ai/stages/nsga2/optimiser.py`
 
 **Purpose:** Search the recommended envelope for the cutting
 parameters that best trade off three competing objectives:
