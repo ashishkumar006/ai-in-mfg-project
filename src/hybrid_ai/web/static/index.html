@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hybrid AI Manufacturing</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">H</div>
+    <div>
+      <div class="title">Hybrid AI Manufacturing</div>
+      <div class="subtitle">Rule-based CAPP &middot; neural wear prediction &middot; fuzzy diagnosis &middot; Pareto optimisation</div>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span id="status-pill" class="pill">connecting&hellip;</span>
+    <button id="export-btn" class="btn ghost" disabled>Export report</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <form id="part-form" class="card">
+      <h2>Part specification</h2>
+      <label>Part ID<input id="f-part-id" value="BRACKET-A1" maxlength="32"></label>
+      <label>Material<input id="f-material" value="AISI 1045 steel" maxlength="64"></label>
+      <div class="row2">
+        <label>ISO group
+          <select id="f-iso">
+            <option>P</option><option>M</option><option>K</option><option>N</option><option>S</option>
+          </select>
+        </label>
+        <label>Operation
+          <select id="f-op">
+            <option>turning</option><option>facing</option><option>milling</option>
+            <option>drilling</option><option>boring</option>
+          </select>
+        </label>
+      </div>
+      <label>Machine class
+        <select id="f-machine">
+          <option>light</option><option selected>medium</option><option>heavy</option>
+        </select>
+      </label>
+      <label>Hardness (HB) <span id="v-hard" class="val">220</span>
+        <input id="f-hard" type="range" min="120" max="420" step="10" value="220">
+      </label>
+      <label>Target R<sub>a</sub> (&micro;m) <span id="v-ra" class="val">1.6</span>
+        <input id="f-ra" type="range" min="0.4" max="3.2" step="0.1" value="1.6">
+      </label>
+      <label>Batch size<input id="f-batch" type="number" min="1" max="5000" value="50"></label>
+      <button type="submit" id="run-btn" class="btn primary">Run pipeline</button>
+    </form>
+
+    <div class="card">
+      <h2>Optimiser</h2>
+      <div class="row3">
+        <label>Pop.<input id="f-pop" type="number" min="8" max="200" value="60"></label>
+        <label>Gens<input id="f-gens" type="number" min="3" max="200" value="40"></label>
+        <label>Seed<input id="f-seed" type="number" min="0" max="9999" value="42"></label>
+      </div>
+      <label class="check"><input id="f-safe" type="checkbox" checked> Safe-only front (fuzzy gate)</label>
+      <p class="hint">Applied on the next run. Pareto search runs on the MLP.</p>
+    </div>
+
+    <div class="card legend">
+      <h2>Pipeline</h2>
+      <ol>
+        <li><b>CLIPS</b> picks the insert + CAPP plan</li>
+        <li><b>ANN</b> predicts flank wear V<sub>B</sub> + finish R<sub>a</sub></li>
+        <li><b>Fuzzy</b> rates safe / caution / critical</li>
+        <li><b>NSGA-II</b> maps the Pareto trade-off</li>
+      </ol>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="toast" class="toast hidden"></div>
+
+    <section class="grid2">
+      <div class="card" id="capp-card">
+        <h2>CAPP &amp; tool selection</h2>
+        <div id="capp-body"><p class="muted">Running&hellip;</p></div>
+      </div>
+      <div class="card" id="diag-card">
+        <h2>Machining diagnosis <span id="diag-src" class="tag hidden"></span></h2>
+        <div class="seg" role="group" aria-label="Sensor source">
+          <button id="src-synth" class="seg-btn active" type="button">Synthetic sensor</button>
+          <button id="src-meas" class="seg-btn" type="button">Measured NASA run</button>
+        </div>
+        <div id="diag-body"><p class="muted">Running&hellip;</p></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Pareto front <span class="tag">max MRR &amp; life, min R<sub>a</sub></span></h2>
+      <div id="pareto-extremes" class="chips"></div>
+      <div id="pareto-plot" class="plot"></div>
+      <p class="hint">Tip: click any point to diagnose that exact operating point.</p>
+    </section>
+
+    <section class="grid2">
+      <div class="card">
+        <h2>Model comparison</h2>
+        <div id="models-body"><p class="muted">Running&hellip;</p></div>
+      </div>
+      <div class="card">
+        <h2>Benchmarks</h2>
+        <div id="metrics-body"><p class="muted">Running&hellip;</p></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer class="foot">MLP: blended synthetic + NASA &middot; CNNs: NASA windows &middot; CNN-BiLSTM: PHM 2010 &middot; checkpoints in <code>models/</code></footer>
+</body>
+</html>

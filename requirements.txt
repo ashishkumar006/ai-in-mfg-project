@@ -1,0 +1,34 @@
+# Hybrid AI Manufacturing — runtime dependencies
+# Pinned to known-working versions for the prototype.
+
+numpy>=1.26
+scipy>=1.11
+pandas>=2.1
+
+# ML
+torch>=2.1
+scikit-learn>=1.3
+
+# Fuzzy
+scikit-fuzzy>=0.4.2
+
+# Multi-objective optimization (NSGA-II)
+pymoo>=0.6.0
+
+# Data layer
+SQLAlchemy>=2.0
+
+# Rule engine (CLIPS Python bindings)
+clipsPy>=0.5
+
+# Dashboard
+streamlit>=1.30
+plotly>=5.18
+
+# Web API (new dashboard backend + frontend)
+fastapi>=0.115
+uvicorn>=0.30
+
+# Testing
+pytest>=7.4
+httpx>=0.27
