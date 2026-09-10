@@ -54,7 +54,6 @@
         <input id="f-ra" type="range" min="0.4" max="3.2" step="0.1" value="1.6">
       </label>
       <label>Batch size<input id="f-batch" type="number" min="1" max="5000" value="50"></label>
-      <button type="submit" id="run-btn" class="btn primary">Run pipeline</button>
     </form>
 
     <div class="card">
@@ -65,7 +64,27 @@
         <label>Seed<input id="f-seed" type="number" min="0" max="9999" value="42"></label>
       </div>
       <label class="check"><input id="f-safe" type="checkbox" checked> Safe-only front (fuzzy gate)</label>
-      <p class="hint">Applied on the next run. Pareto search runs on the MLP.</p>
+      <p class="hint">Feeds the agent's Pareto search on the next run.</p>
+    </div>
+
+    <div class="card">
+      <h2>Agent controls</h2>
+      <label>Agent goal
+        <select id="f-goal">
+          <option value="full">Full job</option>
+          <option value="select">Select tool</option>
+          <option value="diagnose">Diagnose</option>
+          <option value="optimize">Optimize</option>
+        </select>
+      </label>
+      <label>Extra instructions (optional)
+        <input id="f-notes" maxlength="500" placeholder="e.g. prefer long tool life over speed" autocomplete="off">
+      </label>
+      <button type="button" id="agent-btn" class="btn primary" style="width:100%">Run agent on this part</button>
+      <label style="margin-top:0.6rem">Or ask anything <span class="tag">uses your part</span>
+        <input id="f-ask" maxlength="500" placeholder="e.g. is Vc 300, f 0.4 safe here?" autocomplete="off">
+      </label>
+      <button type="button" id="ask-btn" class="btn ghost" style="width:100%;margin-top:0.4rem">Ask a question instead</button>
     </div>
 
     <div class="card legend">
@@ -81,6 +100,18 @@
 
   <main class="main">
     <div id="toast" class="toast hidden"></div>
+
+    <section class="card agent-hero">
+      <h2>Agent results</h2>
+      <p class="hint">Pick a preset to fill the form, set the goal on the left,
+        press Run — the agent works the tools live and everything below fills in.</p>
+      <div class="chips" id="preset-row">
+        <button class="chipbtn" data-preset="shaft">SHAFT-A12 · steel turning</button>
+        <button class="chipbtn" data-preset="bracket">BRACKET-N7 · alu milling</button>
+        <button class="chipbtn" data-preset="turbine">TURBINE-S3 · superalloy</button>
+      </div>
+      <div id="agent-body"><p class="muted">Nothing yet — run the agent from the left panel.</p></div>
+    </section>
 
     <section class="grid2">
       <div class="card" id="capp-card">
@@ -114,6 +145,7 @@
         <div id="metrics-body"><p class="muted">Running&hellip;</p></div>
       </div>
     </section>
+
   </main>
 </div>
 

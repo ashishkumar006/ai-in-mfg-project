@@ -31,10 +31,9 @@ from hybrid_ai.stages.ann.model import (
     TrainConfig,
     WearRoughnessDL,
     WearRoughnessModel,
-    predict_for_point,
 )
 from hybrid_ai.stages.ann.vicomtech_model import VicomtechTurningModel
-from hybrid_ai.stages.clips.rules import build_capp_sheet, build_rules, rank_tools
+from hybrid_ai.stages.clips.rules import build_rules, rank_tools
 from hybrid_ai.core.nasa_loader import (
     NASA_PATH,
     load_blended_dataset,
@@ -52,10 +51,7 @@ from hybrid_ai.core.schemas import (
 from hybrid_ai.core.synthetic import (
     build_default_tool_catalog,
     generate_synthetic_dataset,
-    generate_synthetic_sensor,
 )
-from hybrid_ai.stages.fuzzy.diagnoser import diagnose
-from hybrid_ai.stages.nsga2.optimiser import NsgaConfig, optimise
 
 st.set_page_config(
     page_title="Hybrid AI Manufacturing",
@@ -146,14 +142,6 @@ def get_phm_big() -> WearRoughnessDL | None:
     return None
 
 
-@st.cache_data(show_spinner=False)
-def _phm_reference() -> tuple[np.ndarray, tuple[float, float]]:
-    """Median-wear window from the held-out PHM cutter c6 + its true labels."""
-    x, y, _ = load_phm_windows(split="test")
-    idx = int(np.argsort(y[:, 0])[len(y) // 2])
-    return x[idx], (float(y[idx, 0]), float(y[idx, 1]))
-
-
 @st.cache_resource(show_spinner="Loading Vicomtech turning model...")
 def get_turning() -> VicomtechTurningModel | None:
     ckpt = MODELS_DIR / "vicomtech_hgbr.joblib"
@@ -163,14 +151,6 @@ def get_turning() -> VicomtechTurningModel | None:
         except Exception:
             pass
     return None
-
-
-@st.cache_data(show_spinner=False)
-def _vicomtech_reference() -> tuple[np.ndarray, tuple[float, float]]:
-    """Median-wear segment from held-out Vicomtech tools + its true labels."""
-    x, y, _ = load_vicomtech(split="test")
-    idx = int(np.argsort(y[:, 0])[len(y) // 2])
-    return x[idx], (float(y[idx, 0]), float(y[idx, 1]))
 
 
 @st.cache_resource(show_spinner="Loading / training CNN-LSTM on NASA data...")
@@ -206,23 +186,18 @@ def _cached_pareto(
     target_ra_um: float = 1.6,
 ) -> pd.DataFrame:
     """Run NSGA-II once per unique config and cache the result table."""
-    model = get_mlp()
-    catalog = get_catalog()
-    tool = next(t for t in catalog if t.insert_code == insert_code)
+    from hybrid_ai.core.schemas import PartSpec as _PartSpec
+    from hybrid_ai.tools import optimize_pareto
 
-    def _sensor_for_pareto(point: OperatingPoint):
-        return generate_synthetic_sensor(point.v_c_mpm, point.f_mmpr, point.ap_mm, seed=7)
-
-    solutions = optimise(
-        model,
-        tool,
-        hardness_hb=float(hardness_hb),
-        config=NsgaConfig(pop_size=int(pop_size), n_generations=int(n_generations), seed=int(seed),
-                          enforce_safe=safe_only),
-        sensor_factory=_sensor_for_pareto,
-        target_ra_um=float(target_ra_um),
-    )
-    return _pareto_df(solutions)
+    # Rebuilt minimal spec: only hardness/target shape the search.
+    part = _PartSpec(part_id="cached", material="", iso_group="P",
+                     operation="turning", hardness_hb=float(hardness_hb),
+                     target_ra_um=float(target_ra_um))
+    out = optimize_pareto.run(part, insert_code=insert_code,
+                              pop_size=int(pop_size),
+                              n_generations=int(n_generations),
+                              seed=int(seed), safe_only=safe_only)
+    return pd.DataFrame(out["solutions"])
 
 
 def _spec_from_form() -> PartSpec:
@@ -259,11 +234,6 @@ def _spec_from_form() -> PartSpec:
     )
 
 
-def _pareto_df(solutions) -> pd.DataFrame:
-    rows = [s.to_dict() for s in solutions]
-    return pd.DataFrame(rows)
-
-
 def _no_match_panel(part: PartSpec, catalog) -> None:
     """Explain why no insert matched and suggest the closest alternatives."""
     rules = build_rules()
@@ -296,136 +266,43 @@ def _no_match_panel(part: PartSpec, catalog) -> None:
     )
 
 
-def _candidate_df(candidates, ranked) -> pd.DataFrame:
-    score_by_code = {t.insert_code: s for t, s in ranked}
-    rows = []
-    for t in candidates:
-        d = t.to_dict()
-        d["score"] = round(score_by_code.get(t.insert_code, 0.0), 3)
-        rows.append(d)
-    return pd.DataFrame(rows)
-
-
 def _predictions_for_all_models(
     selected_tool, operating_point: OperatingPoint, hardness_hb: float
 ) -> pd.DataFrame:
     """Run all trained models on the same operating point and return
-    a comparison DataFrame."""
-    rows = []
-    models = [
-        ("MLP (featurised)", get_mlp(), "predict_for_point"),
-        ("CNN1D (raw windows)", get_cnn1d(), "raw_window"),
-        ("CNN-LSTM (raw windows)", get_cnn_lstm(), "raw_window"),
-    ]
-    sensor = generate_synthetic_sensor(
-        operating_point.v_c_mpm, operating_point.f_mmpr, operating_point.ap_mm, seed=7
+    a comparison DataFrame (via the tools layer)."""
+    from hybrid_ai.tools import compare_models
+
+    out = compare_models.run(
+        _part_for_tool(selected_tool, hardness_hb),
+        operating_point,
+        insert_code=selected_tool.insert_code,
     )
-    for name, model, mode in models:
-        try:
-            if mode == "predict_for_point":
-                pred = predict_for_point(
-                    model, selected_tool, operating_point,
-                    hardness_hb=hardness_hb, sensor=sensor,
-                )
-            else:
-                # Build a raw window: the model expects (6, 9000) shaped input
-                # We synthesize a plausible 9000-sample window from sensor stats
-                raw = _synthesise_raw_window(operating_point, sensor)
-                raw_batch = raw[np.newaxis, :, :]
-                mean, std = model.predict_with_uncertainty(raw_batch, n_passes=20)
-                out = mean[0]
-                unc = float(std[0][0])
-                from hybrid_ai.core.schemas import WearPrediction
-                pred = WearPrediction(
-                    tool=selected_tool,
-                    point=operating_point,
-                    v_b_mm=float(np.clip(out[0], 0.02, 1.5)),
-                    ra_um=float(np.clip(out[1], 0.2, 6.0)),
-                    model_confidence=0.8,
-                    uncertainty=unc,
-                )
-            rows.append(
-                {
-                    "Model": name,
-                    "Predicted V_B (mm)": round(pred.v_b_mm, 3),
-                    "Predicted R_a (um)": round(pred.ra_um, 3),
-                    "± V_B (MC-20)": round(pred.uncertainty, 4),
-                    "Confidence": round(pred.model_confidence, 2),
-                    "Data source": getattr(model, "_source", "?"),
-                }
-            )
-        except Exception as exc:
-            rows.append(
-                {"Model": name, "Predicted V_B (mm)": "—",
-                 "Predicted R_a (um)": "—", "± V_B (MC-20)": "—",
-                 "Confidence": "—",
-                 "Data source": f"error: {exc}"}
-            )
-    big = get_phm_big()
-    if big is not None:
-        try:
-            ref, (true_vb, true_ra) = _phm_reference()
-            mean, std = big.predict_with_uncertainty(ref[np.newaxis], n_passes=20)
-            out = mean[0]
-            rows.append(
-                {
-                    "Model": "CNN-BiLSTM (PHM 6.5k)",
-                    "Predicted V_B (mm)": round(float(out[0]), 3),
-                    "Predicted R_a (um)": round(float(out[1]), 3),
-                    "± V_B (MC-20)": round(float(std[0][0]), 4),
-                    "Confidence": "—",
-                    "Data source": f"ref PHM c6 window, true VB={true_vb:.2f}",
-                }
-            )
-        except Exception as exc:
-            rows.append(
-                {"Model": "CNN-BiLSTM (PHM 6.5k)", "Predicted V_B (mm)": "—",
-                 "Predicted R_a (um)": "—", "± V_B (MC-20)": "—",
-                 "Confidence": "—",
-                 "Data source": f"error: {exc}"}
-            )
-    turning = get_turning()
-    if turning is not None:
-        try:
-            trow, (t_vb, _) = _vicomtech_reference()
-            out = turning.predict(trow[np.newaxis])[0]
-            rows.append(
-                {
-                    "Model": "HGBR (Vicomtech turning)",
-                    "Predicted V_B (mm)": round(float(out[0]), 3),
-                    "Predicted R_a (um)": round(float(out[1]), 3),
-                    "Confidence": "—",
-                    "Data source": f"ref turning segment, true VB={t_vb:.2f}",
-                }
-            )
-        except Exception as exc:
-            rows.append(
-                {"Model": "HGBR (Vicomtech turning)", "Predicted V_B (mm)": "—",
-                 "Predicted R_a (um)": "—", "Confidence": "—",
-                 "Data source": f"error: {exc}"}
-            )
+    rows = []
+    for r in out["rows"]:
+        rows.append(
+            {
+                "Model": r["model"],
+                "Predicted V_B (mm)": r["v_b_mm"] if r["v_b_mm"] is not None else "—",
+                "Predicted R_a (um)": r["ra_um"] if r["ra_um"] is not None else "—",
+                "± V_B (MC-20)": r.get("uncertainty", "—"),
+                "Confidence": r["confidence"] if r["confidence"] is not None else "—",
+                "Data source": r.get("note") or r.get("source", "?")
+                if r.get("error") is None else f"error: {r['error']}",
+            }
+        )
     return pd.DataFrame(rows)
 
 
-def _synthesise_raw_window(op: OperatingPoint, sensor) -> np.ndarray:
-    """Build a plausible (6, 9000) raw-sensor window from current operating
-    point and sensor stats. Used to feed the CNN / CNN-LSTM in the dashboard."""
-    n_channels = 6
-    window_len = 9000
-    rng = np.random.default_rng(0)
-    # Use vibration as a template, scale by the other sensor channels
-    base = rng.normal(0, sensor.vibration_rms_g, size=window_len)
-    chans = np.stack(
-        [
-            base * 0.9,
-            base * 1.0,
-            base * 0.8,
-            base * (sensor.current_a / 5.0),
-            base * (sensor.acoustic_rms_db / 60.0),
-            base * (sensor.cutting_force_n / 500.0),
-        ]
+def _part_for_tool(tool, hardness_hb: float) -> PartSpec:
+    """Minimal PartSpec carrying a selected tool's own ISO group."""
+    return PartSpec(
+        part_id="dashboard",
+        material="",
+        iso_group=tool.iso_group,
+        operation=tool.operation,
+        hardness_hb=float(hardness_hb),
     )
-    return chans.astype(np.float64)
 
 
 def _header_section(part: PartSpec) -> None:
@@ -572,16 +449,20 @@ def _header_section(part: PartSpec) -> None:
         st.info("Fill the form on the left and press **Run pipeline**.")
         return
 
-    model = get_mlp()
-    catalog = get_catalog()
+    from hybrid_ai.tools import select_tool as _select_tool
 
-    operations, candidates, selected, envelope, notes = build_capp_sheet(part, catalog)
-    ranked = rank_tools(part, candidates)
+    capp = _select_tool.run(part)
+    operations = capp["operations"]
+    envelope = capp["envelope"]
+    notes = capp["notes"]
+    selected_dict = capp["selected"]
 
-    if selected is None:
+    if selected_dict is None:
         st.error("No catalog tool matches the part spec.")
-        _no_match_panel(part, catalog)
+        _no_match_panel(part, get_catalog())
         return
+    selected = next(t for t in get_catalog()
+                    if t.insert_code == selected_dict["insert_code"])
 
     tab_capp, tab_pareto, tab_diag, tab_models, tab_explain = st.tabs(
         ["CAPP", "Pareto", "Diagnosis", "Model comparison", "Pipeline trace"]
@@ -592,8 +473,8 @@ def _header_section(part: PartSpec) -> None:
         st.write(pd.DataFrame({"step": operations}))
 
         st.subheader("Tool candidates")
-        cand_df = _candidate_df(candidates, ranked)
-        st.dataframe(cand_df, width="stretch", hide_index=True)
+        st.dataframe(pd.DataFrame(capp["candidates"]),
+                     width="stretch", hide_index=True)
 
         st.subheader("Selected tool")
         st.json(selected.to_dict())
@@ -609,7 +490,7 @@ def _header_section(part: PartSpec) -> None:
                 {
                     "part": part.__dict__,
                     "operations": operations,
-                    "candidates": [t.to_dict() for t in candidates],
+                    "candidates": capp["candidates"],
                     "selected": selected.to_dict(),
                     "envelope": envelope,
                     "notes": notes,
@@ -685,6 +566,8 @@ def _header_section(part: PartSpec) -> None:
         if selected is None or envelope is None:
             st.warning("Need a selected tool and envelope first.")
         else:
+            from hybrid_ai.tools import diagnose_state as _diagnose_tool
+
             sensor_source = st.radio("Sensor source",
                                      ["Synthetic", "Measured NASA run"],
                                      horizontal=True)
@@ -692,39 +575,31 @@ def _header_section(part: PartSpec) -> None:
             f_mid = float(np.mean(envelope["f_mmpr"]))
             ap_mid = float(np.mean(envelope["ap_mm"]))
             op = OperatingPoint(v_c_mpm=v_c_mid, f_mmpr=f_mid, ap_mm=ap_mid)
-            if sensor_source == "Measured NASA run":
-                from hybrid_ai.core.nasa_loader import (
-                    load_nasa_eval_set,
-                    measured_sensor_from_window,
-                )
-                eval_set = load_nasa_eval_set()
-                order = np.argsort(eval_set["y"][:, 0])
-                window = eval_set["windows"][int(order[len(order) // 2])]
-                sensor = measured_sensor_from_window(
-                    window, v_c_mpm=v_c_mid, f_mmpr=f_mid, ap_mm=ap_mid)
+            source = ("measured" if sensor_source == "Measured NASA run"
+                      else "synthetic")
+            if source == "measured":
                 st.caption("Measured vibration/current/acoustic from a median-wear "
                            "NASA run; force estimated.")
-            else:
-                sensor = generate_synthetic_sensor(v_c_mid, f_mid, ap_mid, seed=7)
-            pred = predict_for_point(
-                model, selected, op, hardness_hb=part.hardness_hb, sensor=sensor
-            )
-            diag = diagnose(pred, sensor, target_ra_um=part.target_ra_um)
+            diag = _diagnose_tool.run(part, op,
+                                      insert_code=selected.insert_code,
+                                      sensor_source=source)
+            pred_v_b, pred_ra = diag["v_b_mm"], diag["ra_um"]
+            sensor = diag["sensor"]
 
             m1, m2, m3 = st.columns(3)
-            m1.metric("State", diag.state.upper())
-            m2.metric("Predicted V_B (mm)", f"{pred.v_b_mm:.2f}")
-            m3.metric("Predicted R_a (um)", f"{pred.ra_um:.2f}")
+            m1.metric("State", diag["state"].upper())
+            m2.metric("Predicted V_B (mm)", f"{pred_v_b:.2f}")
+            m3.metric("Predicted R_a (um)", f"{pred_ra:.2f}")
 
             st.write("**Explanation**")
-            st.info(diag.explanation)
+            st.info(diag["explanation"])
 
             sens_df = pd.DataFrame(
                 {
-                    "vibration_rms_g": [sensor.vibration_rms_g],
-                    "current_a": [sensor.current_a],
-                    "acoustic_rms_db": [sensor.acoustic_rms_db],
-                    "cutting_force_n": [sensor.cutting_force_n],
+                    "vibration_rms_g": [sensor["vibration_rms_g"]],
+                    "current_a": [sensor["current_a"]],
+                    "acoustic_rms_db": [sensor["acoustic_rms_db"]],
+                    "cutting_force_n": [sensor["cutting_force_n"]],
                 }
             )
             st.write("**Sensor reading**")
@@ -733,7 +608,8 @@ def _header_section(part: PartSpec) -> None:
             memb = pd.DataFrame(
                 {
                     "membership": ["wear (high)", "roughness (high)", "vibration (high)"],
-                    "value": [diag.wear_membership, diag.roughness_membership, diag.vibration_membership],
+                    "value": [diag["memberships"]["wear"], diag["memberships"]["roughness"],
+                              diag["memberships"]["vibration"]],
                 }
             )
             fig = go.Figure(
@@ -742,14 +618,16 @@ def _header_section(part: PartSpec) -> None:
             fig.update_layout(yaxis=dict(range=[0, 1]), title="Critical-band membership")
             st.plotly_chart(fig, width="stretch")
 
-            if diag.state != "safe":
+            if diag["state"] != "safe":
                 st.warning(
-                    f"State is {diag.state.upper()}: consider re-planning "
+                    f"State is {diag['state'].upper()}: consider re-planning "
                     "(more wear-resistant insert, or roughing + finishing split)."
                 )
                 if st.button("Re-run CLIPS excluding current insert"):
-                    alt_catalog = [t for t in catalog if t.insert_code != selected.insert_code]
-                    ops2, cands2, sel2, env2, notes2 = build_capp_sheet(part, alt_catalog)
+                    alt_catalog = [t for t in get_catalog()
+                                   if t.insert_code != selected.insert_code]
+                    from hybrid_ai.stages.clips.rules import build_capp_sheet as _capp
+                    ops2, cands2, sel2, env2, notes2 = _capp(part, alt_catalog)
                     if sel2 is None:
                         st.error("No alternative tool matches the part spec.")
                     else:

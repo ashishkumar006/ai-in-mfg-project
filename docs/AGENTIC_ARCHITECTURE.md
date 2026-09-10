@@ -2,8 +2,8 @@
 
 *How this system evolves from a verified pipeline with dashboards into
 an agent-orchestrated manufacturing assistant — by addition, not by
-rewrite. Status: design document. Nothing here deletes or replaces
-existing code.*
+rewrite. Status: tools layer + agent scaffolding built; MCP server and
+SLM smoke test remain (Phases 0–1 below).* 
 
 ---
 
@@ -16,7 +16,7 @@ passing, and keep serving. Reason, stated plainly:
 
 1. The agent needs *tools*, and tools must be deterministic,
    typed, and measured. That is precisely what the current code is
-   (82 tests, held-out-cutter metrics, Pydantic schemas on every
+   (151 tests, held-out-cutter metrics, Pydantic schemas on every
    boundary). Rewriting it would trade validated behavior for a
    blank page.
 2. The industry's dominant agentic failure mode is the big-bang
@@ -123,7 +123,7 @@ insert"; "critical midpoint → must reroute to safe-only Pareto and say
 so". Metrics: task-success rate, number hallucination rate (target:
 zero, enforced), sensor-source correctness, paraphrase robustness
 (same scenario reworded 3 ways). The ground truth already exists in
-`tests/` and `scripts/check_web.py` — the harness reuses it.
+`tests/` and `scripts/checks/check_web.py` — the harness reuses it.
 
 ---
 

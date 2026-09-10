@@ -45,6 +45,34 @@ def test_explanation_is_non_empty() -> None:
     assert diag.explanation
 
 
+def test_membership_spot_values() -> None:
+    import numpy as np
+
+    from hybrid_ai.stages.fuzzy.diagnoser import _trap_hi, _tri
+
+    assert float(_tri(np.array([0.0]), 0.15, 0.225, 0.30)[0]) == 0.0
+    assert float(_tri(np.array([0.225]), 0.15, 0.225, 0.30)[0]) == 1.0
+    assert float(_trap_hi(np.array([0.10]), 0.30, 0.45)[0]) == 0.0
+    assert float(_trap_hi(np.array([0.45]), 0.30, 0.45)[0]) == 1.0
+    assert float(_trap_hi(np.array([99.0]), 0.30, 0.45)[0]) == 1.0
+
+
+def test_critical_boundary_at_threshold() -> None:
+    diag = diagnose(_pred(v_b=0.45, ra=0.4), thresholds=FuzzyThresholds())
+    assert diag.state == "critical"
+    assert diag.wear_membership == 1.0
+
+
+def test_explanation_names_each_driver() -> None:
+    wear = diagnose(_pred(v_b=0.6, ra=0.4), thresholds=FuzzyThresholds())
+    assert "flank wear" in wear.explanation
+    rough = diagnose(_pred(v_b=0.05, ra=3.0), thresholds=FuzzyThresholds())
+    assert "roughness" in rough.explanation
+    assert not state_is_safe(wear) and not state_is_safe(rough)
+    calm = diagnose(_pred(v_b=0.05, ra=0.4), thresholds=FuzzyThresholds())
+    assert "safe envelope" in calm.explanation
+
+
 def test_thresholds_scale_with_target_finish() -> None:
     tight = FuzzyThresholds.for_target(0.8)
     assert (tight.ra_low, tight.ra_mid, tight.ra_high) == approx((0.4, 0.8, 1.2))
@@ -61,3 +89,14 @@ def test_explicit_thresholds_win_over_target() -> None:
     pred = _pred(v_b=0.05, ra=1.2)
     diag = diagnose(pred, thresholds=FuzzyThresholds(), target_ra_um=0.8)
     assert diag.state == "caution"
+
+
+def test_clipped_extremes_stay_critical() -> None:
+    from dataclasses import replace
+
+    assert diagnose(_pred(v_b=1.5, ra=0.4)).state == "critical"
+    assert diagnose(_pred(v_b=0.05, ra=6.0)).state == "critical"
+    vib = generate_synthetic_sensor(v_c=300.0, f=0.4, ap=3.0, seed=11)
+    vib = replace(vib, vibration_rms_g=99.0)
+    diag = diagnose(_pred(v_b=0.05, ra=0.4), sensor=vib)
+    assert diag.state == "critical"

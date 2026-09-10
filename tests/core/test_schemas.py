@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from hybrid_ai.core.schemas import (
     FuzzyDiagnosis,
     OperatingPoint,
@@ -66,3 +68,24 @@ def test_fuzzy_diagnosis_to_dict() -> None:
         explanation="test",
     )
     assert d.to_dict()["state"] == "caution"
+
+
+def test_dataclasses_are_frozen() -> None:
+    import dataclasses
+
+    part = PartSpec(part_id="x", material="m", iso_group="P", operation="turning")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        part.batch_size = 5  # type: ignore[misc]
+
+
+def test_uncertainty_defaults_to_zero_and_serialises() -> None:
+    t = ToolCandidate(
+        insert_code="X1", iso_group="P", operation="turning",
+        nose_radius_mm=0.8, rake_angle_deg=6.0,
+        v_c_min_mpm=100.0, v_c_max_mpm=200.0,
+        f_min_mmpr=0.1, f_max_mmpr=0.4, ap_max_mm=3.0,
+    )
+    p = OperatingPoint(v_c_mpm=150.0, f_mmpr=0.2, ap_mm=1.5)
+    assert WearPrediction(tool=t, point=p, v_b_mm=0.2, ra_um=1.0).uncertainty == 0.0
+    w = WearPrediction(tool=t, point=p, v_b_mm=0.2, ra_um=1.0, uncertainty=0.05)
+    assert w.to_dict()["uncertainty"] == 0.05

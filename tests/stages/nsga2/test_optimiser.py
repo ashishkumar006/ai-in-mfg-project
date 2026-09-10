@@ -3,6 +3,7 @@ from __future__ import annotations
 from hybrid_ai.stages.ann.model import TrainConfig, WearRoughnessModel
 from hybrid_ai.core.schemas import ToolCandidate
 from hybrid_ai.core.synthetic import generate_synthetic_dataset
+from hybrid_ai.stages.fuzzy.diagnoser import diagnose
 from hybrid_ai.stages.nsga2.optimiser import (
     NsgaConfig,
     mrr_cm3_per_min,
@@ -39,6 +40,18 @@ def test_mrr_increases_with_speed_and_feed() -> None:
     low = mrr_cm3_per_min(OperatingPoint(v_c_mpm=150.0, f_mmpr=0.2, ap_mm=1.5))
     high = mrr_cm3_per_min(OperatingPoint(v_c_mpm=250.0, f_mmpr=0.3, ap_mm=1.5))
     assert high > low
+
+
+def test_mrr_exact_value() -> None:
+    from hybrid_ai.core.schemas import OperatingPoint
+
+    mrr = mrr_cm3_per_min(OperatingPoint(v_c_mpm=200.0, f_mmpr=0.3, ap_mm=2.0))
+    assert mrr == 2.0 * 0.3 * 200.0 / 1000.0 == 0.12
+
+
+def test_tool_life_clip_bounds() -> None:
+    assert tool_life_min(_op(v_c=200, f=0.3, ap=2.0), v_b=0.0) == 240.0
+    assert tool_life_min(_op(v_c=200, f=0.3, ap=2.0), v_b=100.0) == 1.0
 
 
 def test_tool_life_decreases_with_higher_wear() -> None:
@@ -90,8 +103,6 @@ def test_pareto_front_is_non_dominated() -> None:
 
 
 def test_enforce_safe_returns_only_safe_points() -> None:
-    from hybrid_ai.stages.fuzzy.diagnoser import diagnose
-
     model = _fitted_model()
     front = optimise(
         model, _tool(),
@@ -108,3 +119,80 @@ def _pred_for(model, point):
     from hybrid_ai.stages.ann.model import predict_for_point
 
     return predict_for_point(model, _tool(), point, hardness_hb=200.0)
+
+
+def test_optimise_is_deterministic_for_fixed_seed() -> None:
+    model = _fitted_model()
+    cfg = NsgaConfig(pop_size=20, n_generations=10, seed=7)
+    first = [s.to_dict() for s in optimise(model, _tool(), config=cfg)]
+    second = [s.to_dict() for s in optimise(model, _tool(), config=cfg)]
+    assert first == second
+
+
+def test_pareto_filter_units() -> None:
+    from hybrid_ai.core.schemas import OperatingPoint, ParetoSolution
+    from hybrid_ai.stages.nsga2.optimiser import _pareto_filter
+
+    def _sol(vc, mrr, life, ra):
+        return ParetoSolution(point=OperatingPoint(vc, 0.2, 1.0),
+                              mrr_cm3_per_min=mrr, tool_life_min=life, ra_um=ra)
+
+    assert _pareto_filter([]) == []
+    lone = _sol(200, 1.0, 10.0, 1.0)
+    assert _pareto_filter([lone]) == [lone]
+    dom = _sol(200, 1.0, 10.0, 1.0)
+    better = _sol(250, 2.0, 20.0, 0.5)
+    assert _pareto_filter([dom, better]) == [better]
+    dup = _sol(200, 1.0, 10.0, 1.0)
+    assert len(_pareto_filter([lone, dup])) == 1
+
+
+def test_cached_and_uncached_agree() -> None:
+    from hybrid_ai.stages.nsga2 import optimiser as opt
+
+    model = _fitted_model()
+    tool = _tool()
+    point = _op(v_c=200, f=0.3, ap=2.0)
+    with_cache, _ = opt._predict_cached(model, tool, point, 200.0, None, {})
+    without, _ = opt._predict_cached(model, tool, point, 200.0, None, None)
+    assert (with_cache.v_b_mm, with_cache.ra_um) == (without.v_b_mm, without.ra_um)
+
+
+def test_prediction_cache_avoids_recompute() -> None:
+    from hybrid_ai.stages.nsga2 import optimiser as opt
+
+    model = _fitted_model()
+    tool = _tool()
+    calls = {"n": 0}
+    real_predict = opt.predict_for_point
+
+    def counting(model_, tool_, point, **kwargs):
+        calls["n"] += 1
+        return real_predict(model_, tool_, point, **kwargs)
+
+    opt.predict_for_point = counting
+    try:
+        point = _op(v_c=200, f=0.3, ap=2.0)
+        cache: dict = {}
+        opt._predict_cached(model, tool, point, 200.0, None, cache)
+        opt._predict_cached(model, tool, point, 200.0, None, cache)
+        assert calls["n"] == 1
+        assert len(cache) == 1
+    finally:
+        opt.predict_for_point = real_predict
+
+
+def test_grid_fallback_respects_safe_gate(monkeypatch) -> None:
+    from hybrid_ai.stages.nsga2 import optimiser as opt
+
+    monkeypatch.setattr(opt, "_HAS_PYMOO", False)
+    model = _fitted_model()
+    front = optimise(
+        model, _tool(),
+        config=NsgaConfig(pop_size=20, n_generations=10, enforce_safe=True),
+        target_ra_um=1.6,
+    )
+    assert len(front) >= 1
+    for s in front:
+        pred = _pred_for(model, s.point)
+        assert diagnose(pred, None, target_ra_um=1.6).state == "safe"

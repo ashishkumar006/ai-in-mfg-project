@@ -24,3 +24,13 @@ def test_measured_vibration_tracks_signal_energy() -> None:
             for w in windows]
     assert max(vibs) > min(vibs)
     assert all(np.isfinite(vibs))
+
+
+def test_featurised_cache_matches_fresh_build() -> None:
+    from hybrid_ai.core.nasa_loader import load_nasa_dataset
+
+    x_cached, y_cached = load_nasa_dataset(use_cache=True)
+    x_fresh, y_fresh = load_nasa_dataset(use_cache=False)
+    assert x_cached.shape == x_fresh.shape == (145, 51)
+    assert np.allclose(x_cached, x_fresh)
+    assert np.allclose(y_cached, y_fresh)

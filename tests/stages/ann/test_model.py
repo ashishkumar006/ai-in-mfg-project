@@ -63,6 +63,60 @@ def test_predict_for_point_returns_positive_values() -> None:
     assert pred.ra_um > 0
 
 
+def test_predict_for_point_clips_to_physical_ranges() -> None:
+    model = _small_model()
+    tool = ToolCandidate(
+        insert_code="CNMG120408-PM",
+        iso_group="P",
+        operation="turning",
+        nose_radius_mm=0.8,
+        rake_angle_deg=6.0,
+        v_c_min_mpm=180.0,
+        v_c_max_mpm=320.0,
+        f_min_mmpr=0.15,
+        f_max_mmpr=0.45,
+        ap_max_mm=4.0,
+    )
+    extreme = OperatingPoint(v_c_mpm=2000.0, f_mmpr=5.0, ap_mm=20.0)
+    pred = predict_for_point(model, tool, extreme, hardness_hb=900.0)
+    assert 0.02 <= pred.v_b_mm <= 1.5
+    assert 0.2 <= pred.ra_um <= 6.0
+    assert 0.0 <= pred.model_confidence <= 1.0
+
+
+def test_predict_for_point_uses_nasa_sensor_block() -> None:
+    rng = np.random.default_rng(3)
+    x = rng.normal(size=(120, 51))
+    y = np.abs(rng.normal(size=(120, 2))) + 0.05
+    model = WearRoughnessModel()
+    model.fit(x, y, TrainConfig(epochs=5, hidden=(16, 16)))
+    assert model.mean.shape[-1] == 51
+    from hybrid_ai.core.schemas import SensorReading
+
+    tool = ToolCandidate(
+        insert_code="T", iso_group="M", operation="milling",
+        nose_radius_mm=0.8, rake_angle_deg=0.0,
+        v_c_min_mpm=100.0, v_c_max_mpm=200.0,
+        f_min_mmpr=0.05, f_max_mmpr=0.2, ap_max_mm=2.5,
+    )
+    sensor = SensorReading(vibration_rms_g=1.0, current_a=5.0,
+                           acoustic_rms_db=70.0, cutting_force_n=300.0)
+    pred = predict_for_point(model, tool,
+                             OperatingPoint(150.0, 0.1, 1.0),
+                             hardness_hb=180.0, sensor=sensor)
+    assert np.isfinite(pred.v_b_mm) and np.isfinite(pred.ra_um)
+
+
+def test_mlp_save_load_roundtrip(tmp_path) -> None:
+    model = _small_model()
+    x, y = generate_synthetic_dataset(n_samples=50, seed=9)
+    ckpt = tmp_path / "mlp.pt"
+    model.save(ckpt)
+    back = WearRoughnessModel()
+    back.load(ckpt)
+    assert np.allclose(back.predict(x), model.predict(x))
+
+
 def test_sklearn_baseline_runs() -> None:
     x, y = generate_synthetic_dataset(n_samples=300, seed=4)
     baseline = SklearnBaseline()

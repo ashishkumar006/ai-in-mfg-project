@@ -102,3 +102,91 @@ def test_heavy_machine_matches_non_steel() -> None:
         p = _spec(iso_group=iso_group, operation=operation, machine="heavy")
         matches = select_tools(p, catalog)
         assert matches, f"no tool for heavy {iso_group}/{operation}"
+
+
+def test_heavy_matrix_for_covered_groups() -> None:
+    catalog = build_default_tool_catalog()
+    for iso_group in ("P", "M", "K", "S"):
+        p = _spec(iso_group=iso_group, operation="turning", machine="heavy")
+        assert select_tools(p, catalog), f"heavy {iso_group} turning unmatched"
+
+
+def test_rule_boundaries() -> None:
+    from hybrid_ai.core.schemas import ToolCandidate
+    from hybrid_ai.stages.clips.rules import build_rules
+
+    def _tool(**kwargs) -> ToolCandidate:
+        defaults = dict(
+            insert_code="T", iso_group="P", operation="turning",
+            nose_radius_mm=0.8, rake_angle_deg=6.0,
+            v_c_min_mpm=100.0, v_c_max_mpm=200.0,
+            f_min_mmpr=0.1, f_max_mmpr=0.4, ap_max_mm=4.0,
+        )
+        defaults.update(kwargs)
+        return ToolCandidate(**defaults)
+
+    rules = {r.name: r.predicate for r in build_rules()}
+    steel_tight = _spec(iso_group="P", target_ra_um=1.0)
+    assert rules["steel-finishing"](steel_tight, _tool(nose_radius_mm=0.8))
+    assert not rules["steel-finishing"](steel_tight, _tool(nose_radius_mm=0.79))
+    assert rules["superalloy-cautious"](_spec(iso_group="S"), _tool(v_c_max_mpm=120.0))
+    assert not rules["superalloy-cautious"](_spec(iso_group="S"), _tool(v_c_max_mpm=120.1))
+    heavy = _spec(machine="heavy")
+    assert rules["heavy-roughing"](heavy, _tool(iso_group="P", ap_max_mm=4.0))
+    assert not rules["heavy-roughing"](heavy, _tool(iso_group="P", ap_max_mm=3.9))
+
+
+def test_iso_and_operation_match_units() -> None:
+    from hybrid_ai.core.schemas import ToolCandidate
+    from hybrid_ai.stages.clips.rules import build_rules
+
+    def _tool(**kwargs) -> ToolCandidate:
+        defaults = dict(
+            insert_code="T", iso_group="P", operation="turning",
+            nose_radius_mm=0.8, rake_angle_deg=6.0,
+            v_c_min_mpm=100.0, v_c_max_mpm=200.0,
+            f_min_mmpr=0.1, f_max_mmpr=0.4, ap_max_mm=4.0,
+        )
+        defaults.update(kwargs)
+        return ToolCandidate(**defaults)
+
+    rules = {r.name: r.predicate for r in build_rules()}
+    assert rules["iso-match"](_spec(iso_group="P"), _tool(iso_group="P"))
+    assert not rules["iso-match"](_spec(iso_group="P"), _tool(iso_group="M"))
+    assert rules["operation-match"](_spec(operation="milling"),
+                                    _tool(operation="milling"))
+    assert not rules["operation-match"](_spec(operation="milling"),
+                                        _tool(operation="turning"))
+
+
+def test_plan_covers_every_operation() -> None:
+    from hybrid_ai.stages.clips.rules import build_capp_sheet
+
+    catalog = build_default_tool_catalog()
+    expectations = {
+        "turning": "Roughing pass",
+        "facing": "Roughing pass",
+        "milling": "Adaptive roughing",
+        "drilling": "Peck drilling",
+        "boring": "Rough boring",
+    }
+    for operation, marker in expectations.items():
+        ops, _, _, _, _ = build_capp_sheet(_spec(operation=operation), catalog)
+        assert marker in " ".join(ops)
+        assert "Final QC" in " ".join(ops)
+
+
+def test_notes_branches_and_empty_catalog() -> None:
+    from hybrid_ai.stages.clips.rules import build_capp_sheet
+
+    catalog = build_default_tool_catalog()
+    _, _, _, _, notes = build_capp_sheet(_spec(iso_group="S"), catalog)
+    assert any("coolant" in n.lower() for n in notes)
+    _, _, _, _, notes = build_capp_sheet(_spec(machine="heavy"), catalog)
+    assert any("heavy" in n.lower() for n in notes)
+    _, _, _, _, notes = build_capp_sheet(_spec(target_ra_um=0.6), catalog)
+    assert any("nose radius" in n.lower() for n in notes)
+    ops, cands, selected, envelope, notes = build_capp_sheet(_spec(), [])
+    assert selected is None and envelope is None and cands == []
+    assert any("no catalog tool" in n.lower() for n in notes)
+    assert ops

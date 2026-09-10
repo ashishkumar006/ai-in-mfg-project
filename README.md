@@ -90,7 +90,7 @@ Two frontends share the same pipeline:
 
 | Dashboard | URL | Notes |
 |---|---|---|
-| **New web UI** (FastAPI + single page, dark theme) | http://127.0.0.1:8502 | Clickable Pareto points, full-report export, Big PHM model row |
+| **New web UI** (FastAPI + single page, dark theme) | http://127.0.0.1:8502 | Clickable Pareto points, full-report export, Big PHM model row, agent chat + form→agent runs |
 | Streamlit (classic) | http://127.0.0.1:8501 | Original tabbed UI |
 
 ```powershell

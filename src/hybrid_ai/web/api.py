@@ -1,8 +1,7 @@
 """FastAPI backend for the Hybrid AI manufacturing pipeline.
 
-Thin HTTP layer over the existing stages (CLIPS / ANN / Fuzzy /
-NSGA-II). Serves the single-page frontend from ``/`` and JSON from
-``/api/*``. Run with::
+Thin HTTP layer: every endpoint delegates to ``hybrid_ai.tools``,
+which owns loading, validation and the stage calls. Run with::
 
     uvicorn hybrid_ai.web.api:app --port 8502
 
@@ -11,41 +10,30 @@ NSGA-II). Serves the single-page frontend from ``/`` and JSON from
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 from typing import Literal
 
-import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from hybrid_ai.stages.ann.model import (
-    TrainConfig,
-    WearRoughnessDL,
-    WearRoughnessModel,
-    predict_for_point,
-)
-from hybrid_ai.stages.ann.vicomtech_model import VicomtechTurningModel
-from hybrid_ai.stages.clips.rules import build_capp_sheet, build_rules, rank_tools
-from hybrid_ai.core.nasa_loader import load_blended_dataset, load_nasa_windows
-from hybrid_ai.core.nasa_loader import load_nasa_eval_set, measured_sensor_from_window
-from hybrid_ai.core.phm_loader import load_phm_windows
-from hybrid_ai.core.vicomtech_loader import load_vicomtech
+from hybrid_ai.agent.factory import make_client
 from hybrid_ai.core.schemas import OperatingPoint, PartSpec
-from hybrid_ai.core.sqlite_loader import ToolCatalogRepository
-from hybrid_ai.core.synthetic import (
-    build_default_tool_catalog,
-    generate_synthetic_dataset,
-    generate_synthetic_sensor,
+from hybrid_ai.tools import (
+    catalog as catalog_tool,
 )
-from hybrid_ai.stages.fuzzy.diagnoser import diagnose
-from hybrid_ai.stages.nsga2.optimiser import NsgaConfig, optimise
+from hybrid_ai.tools import (
+    compare_models,
+    diagnose_state,
+    optimize_pareto,
+    select_tool,
+)
+from hybrid_ai.tools import _models as tool_models
+from hybrid_ai.tools.errors import ToolError
 
 ROOT = Path(__file__).resolve().parents[3]
-MODELS_DIR = ROOT / "models"
 
-app = FastAPI(title="Hybrid AI Manufacturing", version="0.2.0")
+app = FastAPI(title="Hybrid AI Manufacturing", version="0.3.0")
 
 
 # ---------------------------------------------------------------------------
@@ -86,19 +74,64 @@ class DiagnoseIn(BaseModel):
     sensor_source: Literal["synthetic", "measured"] = "synthetic"
 
 
-# ---------------------------------------------------------------------------
-# Shared state (lazy singletons: fast startup, models load on first use)
-# ---------------------------------------------------------------------------
+class ChatIn(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+    max_steps: int = Field(default=8, ge=1, le=12)
 
-_lock = threading.Lock()
-_mlp: WearRoughnessModel | None = None
-_cnn1d: WearRoughnessDL | None = None
-_cnn_lstm: WearRoughnessDL | None = None
-_big: WearRoughnessDL | None = None
-_big_missing: bool = False
-_turning: VicomtechTurningModel | None = None
-_turning_missing: bool = False
-_catalog: list | None = None
+
+class AgentRunIn(BaseModel):
+    part: PartIn
+    goal: Literal["full", "select", "diagnose", "optimize"] = "full"
+    max_steps: int = Field(default=8, ge=1, le=12)
+    pop_size: int = Field(default=60, ge=8, le=200)
+    n_generations: int = Field(default=40, ge=3, le=200)
+    seed: int = Field(default=42, ge=0)
+    safe_only: bool = True
+    sensor_source: Literal["synthetic", "measured"] = "synthetic"
+    notes: str = Field(default="", max_length=500)
+
+
+def _agent_task(goal: str, part_json: str, body: AgentRunIn) -> str:
+    base = _GOAL_TASKS[goal].format(part=part_json)
+    base += (f" Pareto search must use exactly: pop_size={body.pop_size}, "
+             f"n_generations={body.n_generations}, seed={body.seed}, "
+             f"safe_only={str(body.safe_only).lower()}. "
+             f"Diagnose with sensor_source={body.sensor_source!r}.")
+    if body.notes.strip():
+        base += f" Operator instructions: {body.notes.strip()}"
+    return base
+
+
+_GOAL_TASKS = {
+    "select": ("Select the best insert for this part: {part}. "
+               "You must call select_tool, then diagnose_state at the "
+               "envelope midpoint. Report the insert code, recommended "
+               "envelope, operation plan and midpoint diagnosis."),
+    "diagnose": ("Diagnose the envelope midpoint for this part: {part}. "
+                 "You must call select_tool first (for the envelope), then "
+                 "diagnose_state, then compare_models for corroboration. "
+                 "Report V_B, R_a, state, explanation and what the other "
+                 "models say."),
+    "optimize": ("Produce a safe-only Pareto front for this part: {part}. "
+                 "You must call select_tool, then optimize_pareto, then "
+                 "diagnose_state on the max-MRR point to confirm it. "
+                 "Report the extremes (max MRR, max life, min Ra) plus the "
+                 "confirmation diagnosis."),
+    "full": ("Do the full job for this part: {part}. You must call, in "
+             "order: select_tool, diagnose_state at the envelope midpoint, "
+             "optimize_pareto (safe-only), diagnose_state again on the most "
+             "promising Pareto point, then compare_models. Finish with the "
+             "insert code, operating point, V_B/R_a, diagnosis, Pareto "
+             "extremes and key trade-offs - every number from the tools."),
+}
+
+_GOAL_TOOLS = {
+    "select": ["select_tool", "diagnose_state"],
+    "diagnose": ["select_tool", "diagnose_state", "compare_models"],
+    "optimize": ["select_tool", "optimize_pareto", "diagnose_state"],
+    "full": ["select_tool", "diagnose_state", "optimize_pareto",
+             "compare_models"],
+}
 
 
 def _to_part(p: PartIn) -> PartSpec:
@@ -114,143 +147,23 @@ def _to_part(p: PartIn) -> PartSpec:
     )
 
 
-def get_catalog() -> list:
-    global _catalog
-    if _catalog is None:
-        with _lock:
-            if _catalog is None:
-                repo = ToolCatalogRepository(":memory:")
-                repo.upsert(build_default_tool_catalog())
-                _catalog = repo.all()
-    return _catalog
+def _to_point(p: PointIn) -> OperatingPoint:
+    return OperatingPoint(v_c_mpm=p.v_c_mpm, f_mmpr=p.f_mmpr, ap_mm=p.ap_mm)
 
 
-def get_mlp() -> WearRoughnessModel:
-    global _mlp
-    if _mlp is None:
-        with _lock:
-            if _mlp is None:
-                model = WearRoughnessModel()
-                ckpt = MODELS_DIR / "nasa_mlp.pt"
-                if ckpt.exists():
-                    try:
-                        model.load(ckpt)
-                    except Exception:
-                        model = _train_mlp()
-                else:
-                    model = _train_mlp()
-                _mlp = model
-    return _mlp
-
-
-def _train_mlp() -> WearRoughnessModel:
+def _call(fn, *args, **kwargs):
+    """Run a tool, translating ToolError into HTTP status codes."""
     try:
-        x, y = load_blended_dataset(n_synthetic=1200, seed=42)
-    except Exception:
-        x, y = generate_synthetic_dataset(n_samples=1200, seed=42)
-    model = WearRoughnessModel()
-    model.fit(x, y, TrainConfig(epochs=60))
-    return model
-
-
-def _load_dl(name: str) -> WearRoughnessDL:
-    return WearRoughnessDL.load(MODELS_DIR / name)
-
-
-def get_cnn1d() -> WearRoughnessDL:
-    global _cnn1d
-    if _cnn1d is None:
-        with _lock:
-            if _cnn1d is None:
-                _cnn1d = _load_dl("nasa_cnn1d.pt")
-    return _cnn1d
-
-
-def get_cnn_lstm() -> WearRoughnessDL:
-    global _cnn_lstm
-    if _cnn_lstm is None:
-        with _lock:
-            if _cnn_lstm is None:
-                _cnn_lstm = _load_dl("nasa_cnn_lstm.pt")
-    return _cnn_lstm
-
-
-def get_big() -> WearRoughnessDL | None:
-    global _big, _big_missing
-    if _big is None and not _big_missing:
-        with _lock:
-            if _big is None and not _big_missing:
-                ckpt = MODELS_DIR / "phm_cnn_bilstm.pt"
-                if ckpt.exists():
-                    try:
-                        _big = WearRoughnessDL.load(ckpt)
-                    except Exception:
-                        _big_missing = True
-                else:
-                    _big_missing = True
-    return _big
-
-
-def _resolve_tool(part: PartSpec, insert_code: str | None):
-    catalog = get_catalog()
-    if insert_code is not None:
-        for tool in catalog:
-            if tool.insert_code == insert_code:
-                return tool
-        raise HTTPException(status_code=404,
-                            detail=f"unknown insert_code {insert_code!r}")
-    _, candidates, selected, _, _ = build_capp_sheet(part, catalog)
-    if selected is None:
-        raise HTTPException(status_code=422,
-                            detail="no catalog tool matches the part spec")
-    return selected
-
-
-def _synthesise_raw_window(point: OperatingPoint, sensor) -> np.ndarray:
-    rng = np.random.default_rng(0)
-    base = rng.normal(0, sensor.vibration_rms_g, size=9000)
-    return np.stack(
-        [
-            base * 0.9,
-            base * 1.0,
-            base * 0.8,
-            base * (sensor.current_a / 5.0),
-            base * (sensor.acoustic_rms_db / 60.0),
-            base * (sensor.cutting_force_n / 500.0),
-        ]
-    ).astype(np.float64)
-
-
-def _phm_reference() -> tuple[np.ndarray, float, float]:
-    x, y, _ = load_phm_windows(split="test")
-    j = int(np.argsort(y[:, 0])[len(y) // 2])
-    return x[j], float(y[j, 0]), float(y[j, 1])
-
-
-def get_turning() -> VicomtechTurningModel | None:
-    global _turning, _turning_missing
-    if _turning is None and not _turning_missing:
-        with _lock:
-            if _turning is None and not _turning_missing:
-                ckpt = MODELS_DIR / "vicomtech_hgbr.joblib"
-                if ckpt.exists():
-                    try:
-                        _turning = VicomtechTurningModel.load(ckpt)
-                    except Exception:
-                        _turning_missing = True
-                else:
-                    _turning_missing = True
-    return _turning
-
-
-def _vicomtech_reference() -> tuple[np.ndarray, float, float]:
-    x, y, _ = load_vicomtech(split="test")
-    j = int(np.argsort(y[:, 0])[len(y) // 2])
-    return x[j], float(y[j, 0]), float(y[j, 1])
+        return fn(*args, **kwargs)
+    except ToolError as exc:
+        raise HTTPException(
+            status_code=404 if exc.code == "unknown_tool" else 422,
+            detail=exc.message,
+        )
 
 
 # ---------------------------------------------------------------------------
-# Routes
+# Routes (all delegate to hybrid_ai.tools)
 # ---------------------------------------------------------------------------
 
 
@@ -261,18 +174,21 @@ def health() -> dict:
 
 @app.get("/api/status")
 def status() -> dict:
+    models_dir = ROOT / "models"
     return {
-        "catalog_size": len(get_catalog()),
+        "catalog_size": len(tool_models.get_catalog()),
         "models": {
-            "mlp": _mlp is not None,
-            "cnn1d": _cnn1d is not None,
-            "cnn_lstm": _cnn_lstm is not None,
-            "cnn_bilstm_phm": _big is not None,
+            "mlp": tool_models._mlp is not None,
+            "cnn1d": tool_models._cnn1d is not None,
+            "cnn_lstm": tool_models._cnn_lstm is not None,
+            "cnn_bilstm_phm": tool_models._big is not None,
+            "turning": tool_models._turning is not None,
         },
         "checkpoints": {
-            name: (MODELS_DIR / name).exists()
+            name: (models_dir / name).exists()
             for name in ("nasa_mlp.pt", "nasa_cnn1d.pt",
-                         "nasa_cnn_lstm.pt", "phm_cnn_bilstm.pt")
+                         "nasa_cnn_lstm.pt", "phm_cnn_bilstm.pt",
+                         "vicomtech_hgbr.joblib")
         },
         "data": {
             "nasa": (ROOT / "data" / "raw" / "nasa_milling.parquet").exists(),
@@ -283,242 +199,131 @@ def status() -> dict:
 
 @app.get("/api/catalog")
 def catalog() -> dict:
-    return {"tools": [t.to_dict() for t in get_catalog()]}
+    return catalog_tool.run_list()
 
 
 @app.post("/api/capp")
 def capp(part: PartIn) -> dict:
-    spec = _to_part(part)
-    catalog = get_catalog()
-    operations, candidates, selected, envelope, notes = build_capp_sheet(spec, catalog)
-    ranked = rank_tools(spec, candidates)
-    body: dict = {
-        "operations": operations,
-        "candidates": [
-            {**t.to_dict(), "score": round(s, 3)} for t, s in ranked
-        ],
-        "selected": selected.to_dict() if selected else None,
-        "envelope": envelope,
-        "notes": notes,
-    }
-    if selected is None:
-        rules = build_rules()
-        body["no_match"] = {
-            "per_rule": [
-                {
-                    "rule": r.name,
-                    "passing": sum(1 for t in catalog if r.predicate(spec, t)),
-                    "requires": r.description,
-                }
-                for r in rules
-            ],
-            "closest": [
-                {
-                    "insert_code": t.insert_code,
-                    "iso_group": t.iso_group,
-                    "operation": t.operation,
-                    "score": round(s, 3),
-                }
-                for t, s in rank_tools(spec, list(catalog))[:3]
-            ],
-        }
-    return body
-
-
-def _resolve_sensor(body: DiagnoseIn, point: OperatingPoint):
-    """Synthetic reading, or a measured one from a real NASA run."""
-    if body.sensor_source == "measured":
-        eval_set = load_nasa_eval_set()
-        order = np.argsort(eval_set["y"][:, 0])
-        window = eval_set["windows"][int(order[len(order) // 2])]
-        return measured_sensor_from_window(
-            window, v_c_mpm=point.v_c_mpm, f_mmpr=point.f_mmpr, ap_mm=point.ap_mm,
-        ), "measured NASA run"
-    sensor = generate_synthetic_sensor(point.v_c_mpm, point.f_mmpr, point.ap_mm,
-                                       seed=7)
-    return sensor, "synthetic"
+    return select_tool.run(_to_part(part))
 
 
 @app.post("/api/compare")
 def compare(body: DiagnoseIn) -> dict:
-    spec = _to_part(body.part)
-    tool = _resolve_tool(spec, body.insert_code)
-    point = OperatingPoint(v_c_mpm=body.point.v_c_mpm, f_mmpr=body.point.f_mmpr,
-                           ap_mm=body.point.ap_mm)
-    sensor, _ = _resolve_sensor(body, point)
-    rows: list[dict] = []
-    pred = predict_for_point(get_mlp(), tool, point,
-                             hardness_hb=spec.hardness_hb, sensor=sensor)
-    rows.append({"model": "MLP (blended)", "v_b_mm": round(pred.v_b_mm, 3),
-                 "ra_um": round(pred.ra_um, 3),
-                 "confidence": round(pred.model_confidence, 2),
-                 "uncertainty": round(pred.uncertainty, 4)})
-    raw = _synthesise_raw_window(point, sensor)[np.newaxis, :, :]
-    for name, getter in (("CNN1D", get_cnn1d), ("CNN-LSTM", get_cnn_lstm)):
-        try:
-            mean, std = getter().predict_with_uncertainty(raw, n_passes=20)
-            out = mean[0]
-            rows.append({"model": name,
-                         "v_b_mm": round(float(np.clip(out[0], 0.02, 1.5)), 3),
-                         "ra_um": round(float(np.clip(out[1], 0.2, 6.0)), 3),
-                         "confidence": None,
-                         "uncertainty": round(float(std[0][0]), 4)})
-        except Exception as exc:
-            rows.append({"model": name, "v_b_mm": None, "ra_um": None,
-                         "confidence": None, "error": str(exc)})
-    big = get_big()
-    if big is not None:
-        try:
-            ref, true_vb, _ = _phm_reference()
-            mean, std = big.predict_with_uncertainty(ref[np.newaxis], n_passes=20)
-            out = mean[0]
-            rows.append({"model": "CNN-BiLSTM (PHM 6.5k)",
-                         "v_b_mm": round(float(out[0]), 3),
-                         "ra_um": round(float(out[1]), 3),
-                         "confidence": None,
-                         "uncertainty": round(float(std[0][0]), 4),
-                         "note": f"reference PHM c6 window, true VB={true_vb:.2f}"})
-        except Exception as exc:
-            rows.append({"model": "CNN-BiLSTM (PHM 6.5k)", "v_b_mm": None,
-                         "ra_um": None, "confidence": None, "error": str(exc)})
-    turning = get_turning()
-    if turning is not None:
-        try:
-            trow, t_vb, _ = _vicomtech_reference()
-            out = turning.predict(trow[np.newaxis])[0]
-            rows.append({"model": "HGBR (Vicomtech turning)",
-                         "v_b_mm": round(float(out[0]), 3),
-                         "ra_um": round(float(out[1]), 3),
-                         "confidence": None,
-                         "note": f"reference turning segment, true VB={t_vb:.2f}"})
-        except Exception as exc:
-            rows.append({"model": "HGBR (Vicomtech turning)", "v_b_mm": None,
-                         "ra_um": None, "confidence": None, "error": str(exc)})
-    return {"point": point.to_dict(), "tool": tool.insert_code, "rows": rows}
+    return _call(
+        compare_models.run,
+        _to_part(body.part), _to_point(body.point),
+        insert_code=body.insert_code, sensor_source=body.sensor_source,
+    )
 
 
 @app.post("/api/diagnose")
 def diagnose_point(body: DiagnoseIn) -> dict:
-    spec = _to_part(body.part)
-    tool = _resolve_tool(spec, body.insert_code)
-    point = OperatingPoint(v_c_mpm=body.point.v_c_mpm, f_mmpr=body.point.f_mmpr,
-                           ap_mm=body.point.ap_mm)
-    sensor, sensor_label = _resolve_sensor(body, point)
-    pred = predict_for_point(get_mlp(), tool, point,
-                             hardness_hb=spec.hardness_hb, sensor=sensor)
-    diag = diagnose(pred, sensor, target_ra_um=spec.target_ra_um)
-    return {
-        "point": point.to_dict(),
-        "tool": tool.insert_code,
-        "sensor_source": sensor_label,
-        "v_b_mm": round(pred.v_b_mm, 3),
-        "ra_um": round(pred.ra_um, 3),
-        "confidence": round(pred.model_confidence, 2),
-        "sensor": {
-            "vibration_rms_g": round(sensor.vibration_rms_g, 3),
-            "current_a": round(sensor.current_a, 2),
-            "acoustic_rms_db": round(sensor.acoustic_rms_db, 1),
-            "cutting_force_n": round(sensor.cutting_force_n, 1),
-        },
-        "state": diag.state,
-        "explanation": diag.explanation,
-        "memberships": {
-            "wear": round(diag.wear_membership, 3),
-            "roughness": round(diag.roughness_membership, 3),
-            "vibration": round(diag.vibration_membership, 3),
-        },
-    }
+    return _call(
+        diagnose_state.run,
+        _to_part(body.part), _to_point(body.point),
+        insert_code=body.insert_code, sensor_source=body.sensor_source,
+    )
 
 
 @app.post("/api/pareto")
 def pareto(body: ParetoIn) -> dict:
-    spec = _to_part(body.part)
-    tool = _resolve_tool(spec, body.insert_code)
-
-    def _sensor(point: OperatingPoint):
-        return generate_synthetic_sensor(point.v_c_mpm, point.f_mmpr,
-                                         point.ap_mm, seed=7)
-
-    solutions = optimise(
-        get_mlp(), tool, hardness_hb=spec.hardness_hb,
-        config=NsgaConfig(pop_size=body.pop_size,
-                          n_generations=body.n_generations, seed=body.seed,
-                          enforce_safe=body.safe_only),
-        sensor_factory=_sensor,
-        target_ra_um=spec.target_ra_um,
+    return _call(
+        optimize_pareto.run,
+        _to_part(body.part), insert_code=body.insert_code,
+        pop_size=body.pop_size, n_generations=body.n_generations,
+        seed=body.seed, safe_only=body.safe_only,
     )
-    rows = [s.to_dict() for s in solutions]
-    if not rows:
-        return {"tool": tool.insert_code, "solutions": [], "extremes": {},
-                "safe_only": body.safe_only, "note": "no feasible solutions"}
-    arr = {k: [r[k] for r in rows]
-           for k in ("mrr_cm3_per_min", "tool_life_min", "ra_um")}
-    pick = lambda key, i: rows[int(np.argmax(arr[key]) if i == "max" else np.argmin(arr[key]))]
-    return {
-        "tool": tool.insert_code,
-        "safe_only": body.safe_only,
-        "solutions": rows,
-        "extremes": {
-            "max_mrr": pick("mrr_cm3_per_min", "max"),
-            "max_life": pick("tool_life_min", "max"),
-            "min_ra": pick("ra_um", "min"),
-        },
-    }
 
 
 @app.get("/api/model_metrics")
 def model_metrics() -> dict:
-    rows: list[dict] = []
-    mlp = get_mlp()
-    try:
-        xe, ye = load_blended_dataset(n_synthetic=1200, seed=99)
-    except Exception:
-        xe, ye = generate_synthetic_dataset(n_samples=300, seed=99)
-    m = mlp.evaluate(xe, ye)
-    rows.append({"model": "MLP", "input": "11 features (blended)",
-                 "rmse": round(m["rmse"], 4), "mae": round(m["mae"], 4),
-                 "n": m["n"]})
-    try:
-        xw, yw = load_nasa_windows()
-        src, n, kind = "NASA windows", None, "6×9000 raw windows"
-    except Exception:
-        rng = np.random.default_rng(99)
-        xw = rng.normal(size=(60, 6, 9000))
-        yw = np.stack([xw[:, 0].mean(axis=1), xw[:, 1].mean(axis=1)], axis=1)
-        src, n, kind = "synthetic", None, "6×9000 raw windows"
-    for name, getter in (("CNN1D", get_cnn1d), ("CNN-LSTM", get_cnn_lstm)):
-        try:
-            e = getter().evaluate(xw, yw)
-            rows.append({"model": name, "input": kind,
-                         "rmse": round(e["rmse"], 4), "mae": round(e["mae"], 4),
-                         "n": e["n"]})
-        except Exception as exc:
-            rows.append({"model": name, "input": kind, "error": str(exc)})
-    big = get_big()
-    if big is not None:
-        try:
-            from hybrid_ai.core.phm_loader import load_phm_windows as _phm
+    return catalog_tool.run_benchmarks()
 
-            xp, yp, _ = _phm(split="test")
-            e = big.evaluate(xp, yp)
-            rows.append({"model": "CNN-BiLSTM", "input": "7×256 PHM (c6)",
-                         "rmse": round(e["rmse"], 4), "mae": round(e["mae"], 4),
-                         "n": e["n"]})
-        except Exception as exc:
-            rows.append({"model": "CNN-BiLSTM", "input": "7×256 PHM (c6)",
-                         "error": str(exc)})
-    turning = get_turning()
-    if turning is not None:
+
+@app.post("/api/chat")
+def chat(body: ChatIn) -> dict:
+    """Talk to the agent: runs the bounded tool loop and narrates."""
+    from hybrid_ai.agent.loop import run_task
+
+    try:
+        client = make_client()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    try:
+        out = run_task(body.message, client, max_steps=body.max_steps)
+    except Exception as exc:
+        raise HTTPException(status_code=502,
+                            detail=f"agent run failed: {exc}")
+    return {"answer": out["answer"], "steps": out["steps"],
+            "truncated": out["truncated"],
+            "transcript": out["transcript"]}
+
+
+@app.post("/api/agent_run_stream")
+def agent_run_stream(body: AgentRunIn):
+    """Same as /api/agent_run but streams step events (SSE) then done."""
+    import json
+    import queue
+    import threading
+
+    from fastapi.responses import StreamingResponse
+
+    from hybrid_ai.agent.loop import run_task
+
+    try:
+        client = make_client()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    task = _agent_task(body.goal, body.part.model_dump_json(), body)
+    events: queue.Queue = queue.Queue()
+
+    def on_step(entry: dict) -> None:
+        events.put({"event": "step", "data": entry})
+
+    def worker() -> None:
         try:
-            xv, yv, _ = load_vicomtech(split="test")
-            e = turning.evaluate(xv, yv)
-            rows.append({"model": "HGBR", "input": "152 feats (Vicomtech tools)",
-                         "rmse": round(e["rmse"], 4), "mae": round(e["mae"], 4),
-                         "n": e["n"]})
+            out = run_task(task, client, max_steps=body.max_steps,
+                           on_step=on_step,
+                           expect_tools=_GOAL_TOOLS[body.goal])
+            events.put({"event": "done",
+                        "data": {"answer": out["answer"], "steps": out["steps"],
+                                 "truncated": out["truncated"],
+                                 "transcript": out["transcript"]}})
         except Exception as exc:
-            rows.append({"model": "HGBR", "input": "152 feats (Vicomtech tools)",
-                         "error": str(exc)})
-    return {"rows": rows}
+            events.put({"event": "error", "data": {"message": str(exc)}})
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def gen():
+        while True:
+            msg = events.get()
+            yield (f"event: {msg['event']}\n"
+                   f"data: {json.dumps(msg['data'], default=str)}\n\n")
+            if msg["event"] in ("done", "error"):
+                break
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/api/agent_run")
+def agent_run(body: AgentRunIn) -> dict:
+    """Fill-the-form flow: run the agent on a full part spec + goal."""
+    from hybrid_ai.agent.loop import run_task
+
+    try:
+        client = make_client()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    task = _agent_task(body.goal, body.part.model_dump_json(), body)
+    try:
+        out = run_task(task, client, max_steps=body.max_steps,
+                       expect_tools=_GOAL_TOOLS[body.goal])
+    except Exception as exc:
+        raise HTTPException(status_code=502,
+                            detail=f"agent run failed: {exc}")
+    return {"goal": body.goal, "answer": out["answer"],
+            "steps": out["steps"], "truncated": out["truncated"],
+            "transcript": out["transcript"]}
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"

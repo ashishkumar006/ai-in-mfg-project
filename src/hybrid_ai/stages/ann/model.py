@@ -310,7 +310,6 @@ class _CNNLSTM(nn.Module):
             nn.ReLU(),
             nn.MaxPool1d(2),
         )
-        reduced_len = window_len // 4
         self.lstm = nn.LSTM(
             input_size=64,
             hidden_size=lstm_hidden,
@@ -333,7 +332,7 @@ class _CNNLSTM(nn.Module):
 class _CNNBiLSTM(nn.Module):
     """Large CNN + BiLSTM + attention model for PHM-scale window data.
 
-    Three conv blocks (with BatchNorm) downsample the signal 8x, a
+    Three conv blocks (with GroupNorm) downsample the signal 8x, a
     2-layer BiLSTM reads the sequence both ways, attention pooling
     picks the informative steps, and a linear head maps to [VB, Ra].
     Roughly 1M parameters at the default width (vs ~74k for _CNNLSTM).
@@ -402,7 +401,7 @@ class _CNNBiLSTM(nn.Module):
 class DLConfig:
     """Hyperparameters for CNN1D, CNN-LSTM and CNN-BiLSTM."""
 
-    model_type: str = "cnn1d"  # "mlp" | "cnn1d" | "cnn_lstm" | "cnn_bilstm"
+    model_type: str = "cnn1d"  # "cnn1d" | "cnn_lstm" | "cnn_bilstm"
     epochs: int = 40
     batch_size: int = 32
     learning_rate: float = 1e-3

@@ -138,6 +138,119 @@ def test_pareto_unknown_tool_is_404() -> None:
     assert r.status_code == 404
 
 
+def test_chat_uses_agent_loop(monkeypatch) -> None:
+    import hybrid_ai.web.api as api_mod
+
+    class Fake:
+        def complete(self, messages, specs):
+            assert specs
+            return {"answer": "hi from fake"}
+
+    monkeypatch.setattr(api_mod, "make_client", lambda: Fake())
+    r = client.post("/api/chat", json={"message": "hello"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["answer"] == "hi from fake"
+    assert body["truncated"] is False
+
+
+def test_chat_rejects_empty_message() -> None:
+    r = client.post("/api/chat", json={"message": ""})
+    assert r.status_code == 422
+
+
+def test_agent_run_uses_loop(monkeypatch) -> None:
+    import hybrid_ai.web.api as api_mod
+
+    seen: dict = {}
+
+    class Fake:
+        def complete(self, messages, specs):
+            seen["tools"] = sorted(s["name"] for s in specs)
+            return {"answer": "agent says hi"}
+
+    monkeypatch.setattr(api_mod, "make_client", lambda: Fake())
+    r = client.post("/api/agent_run", json={"part": PART, "goal": "select"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["goal"] == "select"
+    assert body["answer"] == "agent says hi"
+    assert "select_tool" in seen["tools"]
+
+
+def test_agent_run_rejects_bad_goal() -> None:
+    r = client.post("/api/agent_run", json={"part": PART, "goal": "fly"})
+    assert r.status_code == 422
+
+
+def test_agent_run_passes_config_and_notes(monkeypatch) -> None:
+    import hybrid_ai.web.api as api_mod
+
+    seen: dict = {}
+
+    real_task = api_mod._agent_task
+
+    def spy_task(goal, part_json, body):
+        seen["task"] = real_task(goal, part_json, body)
+        return seen["task"]
+
+    monkeypatch.setattr(api_mod, "_agent_task", spy_task)
+
+    class Fake:
+        def complete(self, messages, specs):
+            return {"answer": "ok"}
+
+    monkeypatch.setattr(api_mod, "make_client", lambda: Fake())
+    r = client.post("/api/agent_run", json={
+        "part": PART, "goal": "optimize", "pop_size": 25,
+        "n_generations": 7, "seed": 9, "safe_only": False,
+        "sensor_source": "measured", "notes": "prefer long life"})
+    assert r.status_code == 200
+    assert "pop_size=25" in seen["task"]
+    assert "safe_only=false" in seen["task"]
+    assert "sensor_source='measured'" in seen["task"]
+    assert "prefer long life" in seen["task"]
+
+
+def test_agent_run_stream_emits_steps_then_done(monkeypatch) -> None:
+    import hybrid_ai.web.api as api_mod
+
+    class Fake:
+        def complete(self, messages, specs):
+            if not hasattr(self, "n"):
+                self.n = 0
+            self.n += 1
+            if self.n == 1:
+                return {"tool": "list_tools", "args": {}}
+            return {"answer": "stream hi"}
+
+    monkeypatch.setattr(api_mod, "make_client", lambda: Fake())
+    r = client.post("/api/agent_run_stream",
+                    json={"part": PART, "goal": "select"})
+    assert r.status_code == 200
+    assert "text/event-stream" in r.headers["content-type"]
+    text = r.text
+    assert "event: step" in text
+    assert "event: done" in text
+    assert "stream hi" in text
+
+
+def test_diagnose_without_match_is_422() -> None:
+    r = client.post("/api/diagnose", json={
+        "part": {**PART, "iso_group": "S", "operation": "drilling"},
+        "point": {"v_c_mpm": 60.0, "f_mmpr": 0.15, "ap_mm": 1.0},
+    })
+    assert r.status_code == 422
+
+
+def test_compare_without_match_is_422() -> None:
+    r = client.post("/api/compare", json={
+        "part": {**PART, "iso_group": "S", "operation": "drilling"},
+        "point": {"v_c_mpm": 60.0, "f_mmpr": 0.15, "ap_mm": 1.0},
+    })
+    assert r.status_code == 422
+
+
 def test_model_metrics_table() -> None:
     rows = client.get("/api/model_metrics").json()["rows"]
     assert {r["model"] for r in rows} >= {"MLP", "CNN-BiLSTM", "HGBR"}

@@ -33,6 +33,9 @@ consistently.
 - Streamlit dashboard lives in `src/hybrid_ai/dashboard/`; the web
   API + frontend in `src/hybrid_ai/web/`.
 - Tests mirror the package layout under `tests/`.
+- One-off recipes live in `scripts/training/`; verification helpers
+  in `scripts/checks/`. Both locate the repo root via `pyproject.toml`,
+  never by relative depth.
 
 ## Dependency policy
 

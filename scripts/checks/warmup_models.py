@@ -4,7 +4,7 @@ and run one prediction per model. Fails loudly if anything is broken.
 Usage (from the project root)::
 
     $env:PYTHONPATH = "src"
-    .\\.venv\\Scripts\\python.exe scripts/warmup_models.py
+    .\\.venv\\Scripts\\python.exe scripts/checks/warmup_models.py
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 

@@ -162,10 +162,10 @@ demo prints the suggested actions.
 cd "C:\Users\AISHWARYA\Downloads\me project"
 $env:PYTHONPATH = "src"
 
-.\.venv\Scripts\python.exe -m pytest -q            # 82 tests
+.\.venv\Scripts\python.exe -m pytest -q            # 151 tests
 .\.venv\Scripts\python.exe -m hybrid_ai.dashboard.demo   # ~2 s showcase + demo_outputs/
-.\.venv\Scripts\python.exe scripts/eval_models.py  # model scoreboard
-.\.venv\Scripts\python.exe scripts/check_web.py    # 96 live endpoint checks (:8502)
+.\.venv\Scripts\python.exe scripts/checks/eval_models.py  # model scoreboard
+.\.venv\Scripts\python.exe scripts/checks/check_web.py    # 96 live endpoint checks (:8502)
 ```
 
 | Frontend | URL | Notes |
@@ -173,9 +173,9 @@ $env:PYTHONPATH = "src"
 | New web UI | http://127.0.0.1:8502 | Dark theme, clickable Pareto, report export |
 | Streamlit classic | http://127.0.0.1:8501 | Original tabbed UI |
 
-Retrain anything: `scripts/train_phm_big.py`, `scripts/train_unified.py`,
-`scripts/train_vicomtech.py`, `scripts/train_haas.py`,
-`scripts/transfer_proof.py`, `notebooks/colab_train.py` (GPU).
+Retrain anything: `scripts/training/train_phm_big.py`, `scripts/training/train_unified.py`,
+`scripts/training/train_vicomtech.py`, `scripts/training/train_haas.py`,
+`scripts/training/transfer_proof.py`, `notebooks/colab_train.py` (GPU).
 
 ---
 

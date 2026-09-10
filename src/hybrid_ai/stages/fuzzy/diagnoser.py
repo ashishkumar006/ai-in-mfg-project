@@ -58,26 +58,20 @@ def _classify_deterministic(
     vibration: float,
     thresholds: FuzzyThresholds,
 ) -> tuple[FuzzyState, float, float, float]:
-    wear_high = _trap(
+    wear_high = _trap_hi(
         np.array([wear]),
         thresholds.v_b_mid,
         thresholds.v_b_high,
-        thresholds.v_b_high * 1.4,
-        thresholds.v_b_high * 2.5,
     )[0]
-    ra_high = _trap(
+    ra_high = _trap_hi(
         np.array([ra]),
         thresholds.ra_mid,
         thresholds.ra_high,
-        thresholds.ra_high * 1.4,
-        thresholds.ra_high * 2.5,
     )[0]
-    vib_high = _trap(
+    vib_high = _trap_hi(
         np.array([vibration]),
         thresholds.vib_mid,
         thresholds.vib_high,
-        thresholds.vib_high * 1.4,
-        thresholds.vib_high * 2.5,
     )[0]
 
     caution = max(
@@ -119,13 +113,18 @@ def _classify_deterministic(
     return state, float(wear_high), float(ra_high), float(vib_high)
 
 
-def _trap(x: np.ndarray, lo: float, mid: float, hi: float, end: float) -> np.ndarray:
-    if end <= lo:
+def _trap_hi(x: np.ndarray, lo: float, mid: float) -> np.ndarray:
+    """Rising edge that plateaus forever (no falling edge).
+
+    The critical band must never release its grip: extreme values
+    (e.g. predictions sitting exactly on the physical clips) are the
+    *most* critical, so unlike a trapezoid this never falls back
+    to zero past the plateau.
+    """
+    if mid <= lo:
         return np.zeros_like(x, dtype=float)
     rising = (x - lo) / max(mid - lo, 1e-9)
-    plateau = np.ones_like(x, dtype=float)
-    falling = (end - x) / max(end - hi, 1e-9)
-    return np.clip(np.minimum(np.minimum(rising, plateau), falling), 0.0, 1.0)
+    return np.clip(np.minimum(rising, np.ones_like(x, dtype=float)), 0.0, 1.0)
 
 
 def diagnose(

@@ -18,6 +18,16 @@ def test_rul_model_trains_and_roundtrips(tmp_path) -> None:
     assert back.evaluate(x[:50], y[:50])["n"] == 50
 
 
+def test_sequence_single_row_history() -> None:
+    seqs = load_haas_sequences(split="test")
+    shortest = min(seqs, key=lambda s: s[0].shape[0])
+    model = RulSequenceModel(config=RulSeqConfig(epochs=3, patience=1000))
+    model.fit([(shortest[0][:1], shortest[1][:1])])
+    pred = model.predict_seq(shortest[0][:1])
+    assert pred.shape == (1,)
+    assert np.all(np.isfinite(pred))
+
+
 def test_sequence_model_learns_and_roundtrips(tmp_path) -> None:
     seqs = [(x, y) for x, y, _ in load_haas_sequences(split="test")]
     model = RulSequenceModel(config=RulSeqConfig(epochs=25, patience=1000))

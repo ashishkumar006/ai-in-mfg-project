@@ -61,7 +61,7 @@ target distribution with few local samples. On the unseen cutter c6
 the ranking flips (0.0355 / 0.0419 / 0.0317 vs 0.0296 / 0.0359 /
 0.0269): adapting to c4 costs some cross-cutter generality under
 shift (c6 wears hotter, VB up to 0.235 vs 0.211). Reproduce with
-`scripts/transfer_proof.py`.
+`scripts/training/transfer_proof.py`.
 
 ## 7. Multi-dataset round (PHM + NUAA + Vicomtech)
 
@@ -78,7 +78,7 @@ shift (c6 wears hotter, VB up to 0.235 vs 0.211). Reproduce with
   0.0403 and vs the 7ch specialist's 0.0171 on c6. Lesson:
   pooling ≠ free lunch — the specialist wins at home, and NUAA W9
   stays hard. Checkpoint kept (`models/unified_cnn_bilstm.pt`) with
-  its recipe (`scripts/train_unified.py`) but not wired into the UI.
+  its recipe (`scripts/training/train_unified.py`) but not wired into the UI.
 
 ## 8. Haas RUL round (honest negative)
 
@@ -100,7 +100,7 @@ shift (c6 wears hotter, VB up to 0.235 vs 0.211). Reproduce with
   `RulSequenceModel`, verified by a memorisation unit test.
 - Verdict: NOT integrated into any UI — a model at baseline + noise
   must not drive decisions. Reproducible via
-  `scripts/train_haas.py`; needs more lives or life-conditioning.
+  `scripts/training/train_haas.py`; needs more lives or life-conditioning.
 
 Notes:
 
@@ -155,7 +155,7 @@ physical clips (V_B 0.02–1.5, R_a 0.2–6.0).
 
 ## 6. Tests
 
-- `pytest`: **82 passed** (incl. safe-only fronts, tolerance-relative
+- `pytest`: **151 passed** (incl. safe-only fronts, tolerance-relative
   fuzzy, MC uncertainty, measured-sensor, kinematic-Ra tests).
 - Extra verification (`verify_all.py` logic): synthetic scale,
   milling-only selection, NASA shapes/Ra, MLP monotonicity,
@@ -176,3 +176,31 @@ physical clips (V_B 0.02–1.5, R_a 0.2–6.0).
 - Debugging note: `optimise()` once pre-defaulted thresholds before
   deriving tolerance bands, silently disabling the gate — fixed and
   covered by `test_safe_only_front_is_all_safe`.
+
+## 10. Agent-driven findings (SLM smoke test, qwen2.5:1.5b local)
+
+- Running the real agent loop against a 1.5B model caught a genuine
+  fuzzy bug: the critical trapezoid fell back to zero past 1.4×high,
+  so predictions sitting exactly on the physical clips (V_B 1.5,
+  R_a 6.0) diagnosed as **safe**. High bands now plateau
+  (`_trap_hi`); covered by `test_clipped_extremes_stay_critical`.
+- The same run showed the model dropping decimals (ap 175, feed 16).
+  `POINT_SCHEMA` now carries physical ranges, so absurd values come
+  back as actionable `bad_args` instead of silent garbage.
+- After both fixes: 2/2 scripted scenarios pass end to end
+  (`scripts/checks/slm_smoke.py`, ~30–70 s per scenario on CPU).
+
+## 11. Hardening round (strict args, memoization, dedup)
+
+- `validate_args` rejects unknown top-level keys, so hallucinated
+  parameters fail fast with the valid set spelled out.
+- NSGA-II memoizes predictions per run on rounded coordinates
+  (`_predict_cached`, deterministic-factory assumption documented);
+  determinism for fixed seeds is tested.
+- The Streamlit dashboard now reads CAPP/Pareto/diagnosis/comparison
+  through `tools/` like the API does; ~150 lines of duplicated stage
+  calls and helpers removed (`_candidate_df`, `_synthesise_raw_window`,
+  `_pareto_df`, reference loaders, model getters).
+- Loop escalates after repeated shape errors too (not just ToolError),
+  and `factory` rejects unknown backends instead of silently
+  defaulting.

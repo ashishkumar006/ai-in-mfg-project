@@ -5,7 +5,7 @@ vs from-scratch on the same 400. Evaluates on held-out c4 remainder
 Usage (from the project root)::
 
     $env:PYTHONPATH = "src"
-    .\\.venv\\Scripts\\python.exe scripts/transfer_proof.py
+    .\\.venv\\Scripts\\python.exe scripts/training/transfer_proof.py
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import tempfile
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 

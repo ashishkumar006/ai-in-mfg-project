@@ -5,7 +5,7 @@ CAPP match + no-match, diagnosis, 4-model comparison, Pareto with
 extremes, and the metrics table — across the full part matrix.
 
 Usage (server must be running)::
-    .\\.venv\\Scripts\\python.exe scripts/check_web.py
+    .\\.venv\\Scripts\\python.exe scripts/checks/check_web.py
 """
 
 from __future__ import annotations

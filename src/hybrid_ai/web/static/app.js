@@ -290,8 +290,6 @@ async function renderMetrics() {
 /* -------------------------------- Flow ------------------------------- */
 
 async function runPipeline() {
-  const btn = $("run-btn");
-  btn.disabled = true;
   toast(null);
   try {
     state.part = readPart();
@@ -334,9 +332,144 @@ async function runPipeline() {
     $("export-btn").disabled = false;
   } catch (e) {
     toast(e.message);
+  }
+}
+
+function agentStepRow(t, i) {
+  const obs = t.observation || {};
+  const summary = obs.result ? String(obs.result).slice(0, 220)
+    : (obs.error ? ("error: " + JSON.stringify(obs.error).slice(0, 220)) : "—");
+  return "<tr><td class='num'>" + (i + 1) + "</td><td>" + esc(t.tool || "?") +
+    "</td><td class='muted'>" + esc(summary) + "</td></tr>";
+}
+
+function renderAgentDone(el, data) {
+  let html = "<div class='explain'>" + esc(data.answer) + "</div>";
+  html += "<p class='hint'>" + data.steps + " tool step(s)" +
+    (data.truncated ? " · stopped early" : "") + "</p>";
+  html += "<details open><summary class='hint'>Tool transcript</summary>" +
+    "<table class='data'><tr><th>#</th><th>tool</th><th>result</th></tr>";
+  (data.transcript || []).forEach(function (t, i) {
+    if (!t.tool) return;
+    html += agentStepRow(t, i);
+  });
+  el.innerHTML = html + "</table></details>";
+}
+
+function agentRequestBody() {
+  return {
+    part: readPart(),
+    goal: $("f-goal").value,
+    pop_size: Math.max(8, parseInt($("f-pop").value, 10) || 60),
+    n_generations: Math.max(3, parseInt($("f-gens").value, 10) || 40),
+    seed: parseInt($("f-seed").value, 10) || 0,
+    safe_only: $("f-safe").checked,
+    sensor_source: state.sensorSource,
+    notes: $("f-notes").value.trim(),
+  };
+}
+
+async function runAgentOnce() {
+  const res = await fetch("/api/agent_run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(agentRequestBody()),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
+  return data;
+}
+
+async function runAgent() {
+  const btn = $("agent-btn");
+  btn.disabled = true;
+  const el = $("agent-body");
+  el.innerHTML = "<table class='data' id='agent-live'>" +
+    "<tr><th>#</th><th>tool</th><th>result</th></tr></table>" +
+    "<p class='hint' id='agent-status'>Agent working — calling tools…</p>";
+  const live = $("agent-live");
+  let stepCount = 0;
+  function pushStep(t) {
+    stepCount += 1;
+    live.insertAdjacentHTML("beforeend", agentStepRow(t, stepCount - 1));
+    const st = $("agent-status");
+    if (st) st.textContent = "Agent working — step " + stepCount + ": " + (t.tool || "?") + "…";
+  }
+  try {
+    const res = await fetch("/api/agent_run_stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(agentRequestBody()),
+    });
+    if (!res.ok || !res.body) throw new Error("stream unavailable");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let doneData = null;
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buf += decoder.decode(chunk.value, { stream: true });
+      let cut;
+      while ((cut = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, cut);
+        buf = buf.slice(cut + 2);
+        let evName = "message", payload = "{}";
+        block.split("\n").forEach(function (line) {
+          if (line.indexOf("event:") === 0) evName = line.slice(6).trim();
+          else if (line.indexOf("data:") === 0) payload = line.slice(5).trim();
+        });
+        let data = {};
+        try { data = JSON.parse(payload); } catch (e) { data = {}; }
+        if (evName === "step" && data.tool) pushStep(data);
+        else if (evName === "done" && data.answer !== undefined) doneData = data;
+        else if (evName === "error") throw new Error(data.message || "stream error");
+      }
+    }
+    if (!doneData) throw new Error("stream ended without result");
+    renderAgentDone(el, doneData);
+  } catch (e) {
+    try {
+      renderAgentDone(el, await runAgentOnce());
+    } catch (e2) {
+      el.innerHTML = "<p class='muted'>Error: " + esc(e2.message || e.message) + "</p>";
+    }
   } finally {
     btn.disabled = false;
   }
+}
+
+const PRESETS = {
+  shaft: { "part_id": "SHAFT-A12", "material": "AISI 4140 alloy steel",
+    "iso_group": "P", "operation": "turning", "machine": "medium",
+    "hardness_hb": 240, "target_ra_um": 1.2, "batch_size": 120 },
+  bracket: { "part_id": "BRACKET-N7", "material": "AlSi10Mg aluminium",
+    "iso_group": "N", "operation": "milling", "machine": "light",
+    "hardness_hb": 100, "target_ra_um": 0.8, "batch_size": 200 },
+  turbine: { "part_id": "TURBINE-S3", "material": "Inconel 718 superalloy",
+    "iso_group": "S", "operation": "turning", "machine": "medium",
+    "hardness_hb": 380, "target_ra_um": 1.6, "batch_size": 20 },
+};
+
+function partContextLine() {
+  const p = readPart();
+  return "Current part on screen: " + p.part_id + ", " + p.material +
+    " (ISO " + p.iso_group + ", " + p.operation + ", " + p.machine +
+    " machine, " + p.hardness_hb + " HB, target Ra " + p.target_ra_um +
+    " um, batch " + p.batch_size + "). ";
+}
+
+function fillForm(p) {
+  $("f-part-id").value = p.part_id;
+  $("f-material").value = p.material;
+  $("f-iso").value = p.iso_group;
+  $("f-op").value = p.operation;
+  $("f-machine").value = p.machine;
+  $("f-hard").value = p.hardness_hb;
+  $("v-hard").textContent = p.hardness_hb;
+  $("f-ra").value = p.target_ra_um;
+  $("v-ra").textContent = p.target_ra_um;
+  $("f-batch").value = p.batch_size;
 }
 
 function exportReport() {
@@ -359,9 +492,10 @@ async function refreshStatus() {
   try {
     const res = await fetch("/api/status");
     const s = await res.json();
+    const total = Object.keys(s.models).length;
     const loaded = Object.values(s.models).filter(Boolean).length;
     const pill = $("status-pill");
-    pill.textContent = s.catalog_size + " tools · " + loaded + "/4 models live";
+    pill.textContent = s.catalog_size + " tools · " + loaded + "/" + total + " models live";
     pill.classList.add("ok");
   } catch (e) {
     const pill = $("status-pill");
@@ -370,13 +504,59 @@ async function refreshStatus() {
   }
 }
 
+async function askQuestion() {
+  const input = $("f-ask");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  const el = $("agent-body");
+  el.innerHTML = "<p class='muted'>Agent thinking…</p>";
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: partContextLine() + text }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      el.innerHTML = "<p class='muted'>Error: " + esc(data.detail || ("HTTP " + res.status)) + "</p>";
+      return;
+    }
+    el.innerHTML = "<div class='explain'>" + esc(data.answer) + "</div>" +
+      "<p class='hint'>" + data.steps + " tool step(s)" +
+      (data.truncated ? " · stopped early" : "") + " · design below is current for your part</p>";
+  } catch (e) {
+    el.innerHTML = "<p class='muted'>Error: server unreachable (" + esc(e.message) + ")</p>";
+  }
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   $("f-hard").addEventListener("input", function (e) { $("v-hard").textContent = e.target.value; });
   $("f-ra").addEventListener("input", function (e) { $("v-ra").textContent = e.target.value; });
-  $("part-form").addEventListener("submit", function (e) { e.preventDefault(); runPipeline(); });
+  $("part-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    runAgent().then(function () { return runPipeline(); })
+      .catch(function (e) { toast(e.message); });
+  });
   $("export-btn").addEventListener("click", exportReport);
+  $("agent-btn").addEventListener("click", function () {
+    runAgent().then(function () { return runPipeline(); })
+      .catch(function (e) { toast(e.message); });
+  });
+  $("ask-btn").addEventListener("click", askQuestion);
+  $("f-ask").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); askQuestion(); }
+  });
   $("src-synth").addEventListener("click", function () { setSensorSource("synthetic"); });
   $("src-meas").addEventListener("click", function () { setSensorSource("measured"); });
+  Array.prototype.forEach.call(
+    document.querySelectorAll("#preset-row .chipbtn"),
+    function (btn) {
+      btn.addEventListener("click", function () {
+        const p = PRESETS[btn.getAttribute("data-preset")];
+        if (p) fillForm(p);
+      });
+    });
   refreshStatus();
   runPipeline();
 });

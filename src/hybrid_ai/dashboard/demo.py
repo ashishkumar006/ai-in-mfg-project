@@ -46,7 +46,7 @@ from hybrid_ai.core.synthetic import (
     generate_synthetic_dataset,
     generate_synthetic_sensor,
 )
-from hybrid_ai.stages.fuzzy.diagnoser import FuzzyThresholds, diagnose
+from hybrid_ai.stages.fuzzy.diagnoser import diagnose
 from hybrid_ai.stages.nsga2.optimiser import NsgaConfig, optimise
 
 MODELS_DIR = ROOT / "models"
@@ -126,7 +126,6 @@ def _run_showcase_part(
     part: PartSpec,
     catalog: list,
     model: WearRoughnessModel,
-    thresholds: FuzzyThresholds,
     pop_size: int,
     n_generations: int,
 ) -> dict:
@@ -401,9 +400,8 @@ def main(argv: list[str] | None = None) -> dict:
     model, mlp_source = _load_mlp(train=args.train)
     print(f"MLP: {mlp_source}")
 
-    thresholds = FuzzyThresholds()
     _print_header("1. Showcase: one pipeline, three very different parts")
-    showcase = [_run_showcase_part(p, catalog, model, thresholds,
+    showcase = [_run_showcase_part(p, catalog, model,
                                    show_pop, show_gens) for p in SHOWCASE_PARTS]
     for r in showcase:
         if r["selected"] is not None:

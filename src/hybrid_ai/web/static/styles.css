@@ -212,6 +212,17 @@ body {
   font-size: 0.82rem;
 }
 .chip b { color: var(--accent); }
+.chipbtn {
+  background: #16223d;
+  border: 1px solid var(--accent);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.chipbtn:hover { background: #1b2a4d; }
+.agent-hero { border-color: var(--accent); }
 
 table.data { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
 table.data th, table.data td {

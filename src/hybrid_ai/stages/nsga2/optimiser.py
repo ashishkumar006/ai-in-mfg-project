@@ -10,14 +10,18 @@ as the active envelope, then searches speed/feed/depth.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
 
 from hybrid_ai.stages.ann.model import WearRoughnessModel, predict_for_point
-from hybrid_ai.core.schemas import OperatingPoint, ParetoSolution, ToolCandidate
+from hybrid_ai.core.schemas import (
+    OperatingPoint,
+    ParetoSolution,
+    ToolCandidate,
+    WearPrediction,
+)
 from hybrid_ai.stages.fuzzy.diagnoser import FuzzyThresholds, diagnose
 
 try:
@@ -68,6 +72,28 @@ def tool_life_min(point: OperatingPoint, v_b: float) -> float:
     return float(np.clip(6.0 / v_b, 1.0, 240.0))
 
 
+def _predict_cached(model, tool, point: OperatingPoint, hardness_hb: float,
+                    sensor_factory, cache: dict | None):
+    """predict_for_point with per-run memoization on rounded coordinates.
+
+    Only the (cheap) sensor factory runs every time; the model
+    prediction is cached. Assumes a deterministic sensor_factory
+    (true for the dashboards' seeded factory — documented for
+    custom ones). Returns ``(prediction, sensor)``.
+    """
+    sensor = sensor_factory(point) if sensor_factory is not None else None
+    key = (round(point.v_c_mpm, 6), round(point.f_mmpr, 6), round(point.ap_mm, 6))
+    if cache is not None and key in cache:
+        v_b_mm, ra_um = cache[key]
+        pred = WearPrediction(tool=tool, point=point, v_b_mm=v_b_mm, ra_um=ra_um)
+    else:
+        pred = predict_for_point(model, tool, point, hardness_hb=hardness_hb,
+                                 sensor=sensor)
+        if cache is not None:
+            cache[key] = (pred.v_b_mm, pred.ra_um)
+    return pred, sensor
+
+
 class _MillingProblem(_ProblemBase):  # type: ignore[misc]
     def __init__(
         self,
@@ -79,6 +105,7 @@ class _MillingProblem(_ProblemBase):  # type: ignore[misc]
         enforce_safe: bool = False,
         thresholds: FuzzyThresholds | None = None,
         target_ra_um: float | None = None,
+        cache: dict | None = None,
     ) -> None:
         self.model = model
         self.tool = tool
@@ -87,6 +114,7 @@ class _MillingProblem(_ProblemBase):  # type: ignore[misc]
         self.enforce_safe = enforce_safe
         self.thresholds = thresholds
         self.target_ra_um = target_ra_um
+        self.cache: dict = cache if cache is not None else {}
         xl = np.array([tool.v_c_min_mpm, tool.f_min_mmpr, 0.5])
         xu = np.array(
             [
@@ -105,12 +133,9 @@ class _MillingProblem(_ProblemBase):  # type: ignore[misc]
 
     def _evaluate(self, x: np.ndarray, out: dict, *args, **kwargs) -> None:
         point = OperatingPoint(v_c_mpm=float(x[0]), f_mmpr=float(x[1]), ap_mm=float(x[2]))
-        if self.sensor_factory is not None:
-            sensor = self.sensor_factory(point)
-        else:
-            sensor = None
-        pred = predict_for_point(
-            self.model, self.tool, point, hardness_hb=self.hardness_hb, sensor=sensor
+        pred, sensor = _predict_cached(
+            self.model, self.tool, point, self.hardness_hb,
+            self.sensor_factory, self.cache,
         )
         mrr = mrr_cm3_per_min(point)
         life = tool_life_min(point, pred.v_b_mm)
@@ -140,13 +165,13 @@ def _grid_fallback(
     ap_grid = np.linspace(0.6, max(0.7, min(tool.ap_max_mm, 3.0)), n_ap)
 
     solutions: list[ParetoSolution] = []
+    cache: dict = {}
     for v_c in v_c_grid:
         for f in f_grid:
             for ap in ap_grid:
                 point = OperatingPoint(v_c_mpm=float(v_c), f_mmpr=float(f), ap_mm=float(ap))
-                sensor = sensor_factory(point) if sensor_factory is not None else None
-                pred = predict_for_point(
-                    model, tool, point, hardness_hb=hardness_hb, sensor=sensor
+                pred, sensor = _predict_cached(
+                    model, tool, point, hardness_hb, sensor_factory, cache,
                 )
                 if enforce_safe and not _is_safe(
                     pred, sensor, thresholds, target_ra_um
@@ -235,6 +260,7 @@ def optimise(
                               sensor_factory=sensor_factory,
                               enforce_safe=enforce, thresholds=thresholds,
                               target_ra_um=target_ra_um)
+    cache = problem.cache
     algorithm = NSGA2(
         pop_size=config.pop_size,
         sampling=LHS(),
@@ -259,14 +285,12 @@ def optimise(
                 f_mmpr=float(row[1]),
                 ap_mm=float(row[2]),
             )
-            sensor = sensor_factory(point) if sensor_factory is not None else None
-            pred = predict_for_point(
-                model, tool, point, hardness_hb=hardness_hb, sensor=sensor
+            pred, sensor = _predict_cached(
+                model, tool, point, hardness_hb, sensor_factory, cache,
             )
             if enforce and not _is_safe(pred, sensor, thresholds, target_ra_um):
                 continue
-            solutions.append(
-                ParetoSolution(
+            solutions.append(                ParetoSolution(
                     point=point,
                     mrr_cm3_per_min=mrr_cm3_per_min(point),
                     tool_life_min=tool_life_min(point, pred.v_b_mm),
