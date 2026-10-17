@@ -63,7 +63,8 @@ check("page loads app.js + css + plotly",
       "app.js" in page and "styles.css" in page and "plotly" in page)
 js = get("/app.js").decode()
 for token in ["runPipeline", "plotly_click", "renderDiagnosis", "renderPareto",
-              "exportReport", "/api/capp", "/api/pareto", "/api/diagnose",
+              "exportReport", "runReplan", "/api/capp", "/api/pareto",
+              "/api/diagnose", "/api/replan",
               "/api/compare", "/api/model_metrics", "/api/status"]:
     check(f"js contains {token}", token in js)
 css = get("/styles.css").decode()
@@ -173,6 +174,32 @@ d0 = post("/api/diagnose", {"part": part(**kw), "insert_code": code,
                                       "f_mmpr": s0["f_mmpr"], "ap_mm": s0["ap_mm"]}})
 check("clicked-point diagnose works", d0["state"] in {"safe", "caution", "critical"},
       d0["state"])
+
+# 6b. Tier-1 additions: hypervolume, Taylor cross-check, closed-loop replan ---
+check("pareto reports hypervolume",
+      isinstance(par.get("hypervolume"), dict)
+      and par["hypervolume"].get("value", 0) > 0,
+      str(par.get("hypervolume", {}).get("value")))
+tc = par.get("taylor_check", {})
+check("taylor cross-check present",
+      tc.get("summary") in {"consistent", "mixed", "ann_optimistic",
+                            "ann_pessimistic"}
+      and all(k in tc for k in ("max_mrr", "max_life", "min_ra")),
+      str(tc.get("summary")))
+re = post("/api/replan", {"part": part(**kw), "failed_insert": code,
+                          "failed_state": d0["state"]})
+check("replan returns a verdict + reading",
+      isinstance(re.get("resolved"), bool) and bool(re.get("verdict"))
+      and re.get("reading") in {"safe", "improved", "no_improvement",
+                                "no_alternative"},
+      f"resolved={re.get('resolved')} reading={re.get('reading')}")
+check("replan excludes the failed insert",
+      code not in re.get("considered", []))
+if re.get("alternative"):
+    check("replan alternative is inside its envelope",
+          re["alternative"]["envelope"]["v_c_mpm"][0] - 1e-9
+          <= re["alternative"]["recommended_point"]["v_c_mpm"]
+          <= re["alternative"]["envelope"]["v_c_mpm"][1] + 1e-9)
 
 # 7. metrics table ----------------------------------------------------------
 rows = json.loads(get("/api/model_metrics"))["rows"]

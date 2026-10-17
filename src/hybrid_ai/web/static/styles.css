@@ -17,6 +17,7 @@
   --toast-bg: #1a2438;
   --warn-bg: #2b2312;
   --bad-bg: #2b1418;
+  --good-bg: #0f2b22;
   --accent-ink: #06121f;
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
@@ -40,6 +41,7 @@
   --toast-bg: #ffffff;
   --warn-bg: #fdf3d7;
   --bad-bg: #fde8e6;
+  --good-bg: #e3f7ee;
   --accent-ink: #ffffff;
   --shadow: 0 12px 32px rgba(23, 35, 58, 0.14);
 }
@@ -288,6 +290,9 @@ label .hint { display: block; margin-top: 0.2rem; font-size: 0.76rem; }
 .alert { padding: 0.55rem 0.8rem; border-radius: 8px; font-size: 0.85rem; margin: 0.4rem 0; }
 .alert.warn { background: var(--warn-bg); border: 1px solid var(--warn); color: var(--warn); }
 .alert.bad { background: var(--bad-bg); border: 1px solid var(--bad); color: var(--bad); }
+.alert.good { background: var(--good-bg); border: 1px solid var(--good); color: var(--good); }
+.replan-row { display: flex; align-items: center; gap: 0.6rem; margin: 0.6rem 0; flex-wrap: wrap; }
+.replan-row .hint { margin: 0; }
 .warn-text { color: var(--warn); }
 .summary-card { border-color: var(--accent); }
 .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; margin: 0.5rem 0; }

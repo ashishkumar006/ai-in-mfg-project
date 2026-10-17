@@ -26,6 +26,7 @@ from hybrid_ai.tools import (
     diagnose_state,
     optimize_pareto,
     propose_recalibration,
+    replan as replan_tool,
     select_tool,
     sensitivity_probe,
     sweep_pareto,
@@ -200,6 +201,13 @@ class SensitivityIn(BaseModel):
     rel_delta: float = Field(default=0.1, ge=0.01, le=0.5)
 
 
+class ReplanIn(BaseModel):
+    part: PartIn
+    failed_insert: str | None = None
+    point: PointIn | None = None
+    failed_state: Literal["safe", "caution", "critical"] | None = None
+
+
 class RecalibrateIn(BaseModel):
     target_ra_um: float = Field(default=1.6, ge=0.1, le=10.0)
     vibration_g: float = Field(default=1.0, ge=0.0, le=5.0)
@@ -232,6 +240,18 @@ def sensitivity(body: SensitivityIn) -> dict:
         _to_part(body.part), _to_point(body.point),
         insert_code=body.insert_code, sensor_source=body.sensor_source,
         rel_delta=body.rel_delta,
+    )
+
+
+@app.post("/api/replan")
+def replan(body: ReplanIn) -> dict:
+    """Closed loop: feed a failed verdict back into rule-based selection."""
+    return _call(
+        replan_tool.run,
+        _to_part(body.part),
+        failed_insert=body.failed_insert,
+        point=_to_point(body.point) if body.point else None,
+        failed_state=body.failed_state,
     )
 
 

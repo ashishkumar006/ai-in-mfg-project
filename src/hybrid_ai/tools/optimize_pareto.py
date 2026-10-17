@@ -5,9 +5,17 @@ from __future__ import annotations
 import numpy as np
 
 from hybrid_ai.core.schemas import OperatingPoint, PartSpec
-from hybrid_ai.stages.nsga2.optimiser import NsgaConfig, optimise
+from hybrid_ai.stages.nsga2.optimiser import NsgaConfig, optimise, tool_life_min
+from hybrid_ai.stages.nsga2.taylor import compare_life
 from hybrid_ai.tools import _models
 from hybrid_ai.tools.schemas import PART_SCHEMA
+
+try:  # pymoo ships an exact 3-objective hypervolume indicator
+    from pymoo.indicators.hv import HV
+
+    _HAS_HV = True
+except Exception:  # pragma: no cover - optional dep path
+    _HAS_HV = False
 
 TOOL_SPEC: dict = {
     "name": "optimize_pareto",
@@ -52,16 +60,75 @@ def run(part: PartSpec, insert_code: str | None = None,
     arr = {k: [r[k] for r in rows]
            for k in ("mrr_cm3_per_min", "tool_life_min", "ra_um")}
     pick = lambda key, i: rows[int(np.argmax(arr[key]) if i == "max" else np.argmin(arr[key]))]
+    extremes = {
+        "max_mrr": pick("mrr_cm3_per_min", "max"),
+        "max_life": pick("tool_life_min", "max"),
+        "min_ra": pick("ra_um", "min"),
+    }
     return {
         "tool": tool.insert_code,
         "safe_only": safe_only,
         "solutions": rows,
-        "extremes": {
-            "max_mrr": pick("mrr_cm3_per_min", "max"),
-            "max_life": pick("tool_life_min", "max"),
-            "min_ra": pick("ra_um", "min"),
-        },
+        "extremes": extremes,
+        "hypervolume": _hypervolume(arr),
+        "taylor_check": _taylor_check(part, tool, extremes),
     }
+
+
+def _hypervolume(arr: dict) -> dict | None:
+    """3-objective hypervolume of the front (pymoo, exact).
+
+    Objective vector is the optimiser's minimised form
+    ``[-MRR, -tool_life, R_a]``. The reference point is derived from the
+    front itself (10% worse than the best point on each axis) so the
+    number is comparable *between runs of the same problem* rather than
+    an absolute physical quantity.
+    """
+    if not _HAS_HV or not arr.get("mrr_cm3_per_min"):
+        return None
+    f = np.column_stack([
+        -np.asarray(arr["mrr_cm3_per_min"], dtype=float),
+        -np.asarray(arr["tool_life_min"], dtype=float),
+        np.asarray(arr["ra_um"], dtype=float),
+    ])
+    lo, hi = f.min(axis=0), f.max(axis=0)
+    spread = np.where(hi - lo > 1e-12, hi - lo, 1.0)
+    ref = hi + 0.1 * spread
+    hv = HV(ref_point=ref)(f)
+    return {
+        "value": float(hv),
+        "n_points": int(f.shape[0]),
+        "ref_point": [round(float(v), 4) for v in ref],
+        "method": "pymoo HV (exact, 3 objectives)",
+    }
+
+
+def _taylor_check(part: PartSpec, tool, extremes: dict) -> dict:
+    """Compare the ANN's life estimates against the extended Taylor equation.
+
+    The optimiser derives life from predicted flank wear (``6.0 / V_B``).
+    Taylor's equation is an independent physical model, so agreement
+    between the two is evidence the ANN's wear scale is sane — and
+    disagreement is worth surfacing rather than hiding.
+    """
+    from hybrid_ai.stages.ann.model import predict_for_point
+
+    out: dict = {}
+    for name, row in extremes.items():
+        point = OperatingPoint(
+            v_c_mpm=row["v_c_mpm"], f_mmpr=row["f_mmpr"], ap_mm=row["ap_mm"],
+        )
+        sensor = _models.sensor_for_pareto(point)
+        pred = predict_for_point(_models.get_mlp(), tool, point,
+                                 hardness_hb=part.hardness_hb, sensor=sensor)
+        ann_life = tool_life_min(point, pred.v_b_mm)
+        out[name] = compare_life(pred.v_b_mm, ann_life, point, part.iso_group)
+    verdicts = [v["verdict"] for v in out.values()]
+    out["summary"] = (
+        "consistent" if verdicts.count("consistent") >= 2
+        else verdicts[0] if len(set(verdicts)) == 1 else "mixed"
+    )
+    return out
 
 
 def _explain_no_front(part: PartSpec, tool, safe_only: bool) -> dict:

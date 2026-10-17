@@ -426,6 +426,58 @@ def load_nasa_synthetic_features(
     return X11, y
 
 
+def load_nasa_labeled_features(
+    path: str | Path | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """NASA rows in the 11-dim schema, with their run and case ids.
+
+    Same features as :func:`load_nasa_synthetic_features` (so a blended
+    model can consume them) but keeps the ``run`` / ``case`` labels so a
+    cut can be held out honestly — by cutter/run, not by random row,
+    which is the split that actually measures generalisation.
+
+    Returns
+    -------
+    X11, y, runs, cases :
+        Feature matrix, ``[VB, Ra]`` targets, and the per-row run and
+        case ids. Row order matches the parquet (minus NaN-VB and
+        corrupted rows), so labels stay aligned.
+    """
+    import pandas as pd
+
+    src = Path(path) if path is not None else _check_file(NASA_PATH)
+    df = pd.read_parquet(src).dropna(subset=["VB"]).reset_index(drop=True)
+
+    iso_codes: list[ISOMaterialGroup] = ["P", "M", "K", "N", "S"]
+    X: list[list[float]] = []
+    y: list[list[float]] = []
+    runs: list[int] = []
+    cases: list[int] = []
+
+    for _, row in df.iterrows():
+        rd = row.to_dict()
+        if _is_corrupted(rd):
+            continue
+        material_code = int(row["material"])
+        iso_group = _MATERIAL_TO_ISO.get(material_code, "P")
+        hardness = _MATERIAL_HARDNESS_HB.get(material_code, 200.0)
+        v_c = _DEFAULT_V_C_MPM.get(material_code, 180.0)
+        iso_onehot = [1.0 if code == iso_group else 0.0 for code in iso_codes]
+        feed = float(row["feed"])
+        vb = float(row["VB"])
+        X.append([v_c, feed, float(row["DOC"]), 0.8, 0.0, *iso_onehot, hardness])
+        y.append([vb, _impute_ra(feed, vb)])
+        runs.append(int(row["run"]))
+        cases.append(int(row["case"]))
+
+    return (
+        np.asarray(X, dtype=np.float64),
+        np.asarray(y, dtype=np.float64),
+        np.asarray(runs, dtype=np.int64),
+        np.asarray(cases, dtype=np.int64),
+    )
+
+
 def load_blended_dataset(
     n_synthetic: int = 1200,
     seed: int = 42,

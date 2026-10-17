@@ -16,6 +16,7 @@ from hybrid_ai.tools import (
     optimize_pareto,
     predict_wear,
     propose_recalibration,
+    replan,
     select_tool,
     sensitivity_probe,
     sweep_pareto,
@@ -45,6 +46,8 @@ REGISTRY: dict[str, dict] = {
     propose_recalibration.TOOL_SPEC["name"]: {
         "spec": propose_recalibration.TOOL_SPEC,
         "run": propose_recalibration.run},
+    replan.TOOL_SPEC["name"]: {
+        "spec": replan.TOOL_SPEC, "run": replan.run},
 }
 
 __all__ = [
@@ -56,6 +59,7 @@ __all__ = [
     "optimize_pareto",
     "predict_wear",
     "propose_recalibration",
+    "replan",
     "select_tool",
     "sensitivity_probe",
     "sweep_pareto",

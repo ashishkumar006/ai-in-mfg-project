@@ -204,3 +204,39 @@ physical clips (V_B 0.02–1.5, R_a 0.2–6.0).
 - Loop escalates after repeated shape errors too (not just ToolError),
   and `factory` rejects unknown backends instead of silently
   defaulting.
+
+## 12. Tier-1 round (physics cross-check, hypervolume, honest holdout, closed loop)
+
+Four additions that make claims in the project deck checkable rather
+than asserted:
+
+- **Extended-Taylor cross-check** (`stages/nsga2/taylor.py`).
+  `V_c·T^n·D^z·f^y = K` with per-ISO `n`,`K`. Against the ANN's
+  `life = 6.0/V_B` proxy on a P part it returns `ann_pessimistic` at
+  two of three front extremes and `consistent` at the third
+  (`summary = mixed`) — i.e. the ANN quotes *longer* lives than
+  machining theory, which is the unsafe direction. Surfaced in
+  `optimize_pareto.taylor_check`; not used to override the ANN.
+- **Hypervolume** (`optimize_pareto.hypervolume`). Exact 3-objective
+  HV via `pymoo.indicators.hv.HV`, reference point 10% beyond the
+  front's own nadir (a *relative* front-quality number, not a physical
+  quantity). Example front HV ≈ 0.61–1.13 depending on the part.
+- **Honest NASA holdout** (`scripts/training/heldout_nasa.py`,
+  `docs/heldout_nasa.json`). Leave-one-run-out over the 23 runs:
+  weighted held-out RMSE(VB) = **0.250 mm**, versus a train-mean
+  baseline of 0.260 mm. The blended MLP's headline 0.082 is
+  synthetic-dominated and barely generalises to an unseen NASA run.
+  The genuinely validated model remains the CNN-BiLSTM (0.017 on
+  held-out cutter c6) — this round makes that distinction explicit.
+- **Closed-loop re-plan** (`tools/replan.py` + `POST /api/replan` + UI
+  button). Excludes the failing insert, grid-searches the new envelope
+  for the safest setting, diagnoses it. On the synthetic catalog it
+  resolves 5 of 46 fault cases (critical/caution → safe); the other 41
+  honestly return `no_alternative` because the catalog has a single
+  insert for that material/operation. Bounded to one re-plan; never
+  invents a fix.
+
+Also: `scripts/checks/bench_speed.py` reports per-stage latency
+(rules ≈ 0 ms, predict ≈ 0.2 ms, NSGA-II 24×12 ≈ 67 ms; full pipeline
+~67 ms) and search precision (NSGA-II with the gate on returns
+24/24 safe vs 90/288 = 31% for random sampling on equal budget).

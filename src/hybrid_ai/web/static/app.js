@@ -399,6 +399,11 @@ async function runPipeline() {
             : "No setting in this envelope passes the gate.") +
           " Uncheck safe-only to see the full trade-off space, or pick a different insert.</div>"
         : "<p class='hint'>Scroll down for the details. Click any Pareto dot to diagnose that setting.</p>") +
+      "<div class='replan-row'>" +
+      "<button class='btn ghost sm' id='replan-btn'>↻ Re-plan with a different insert</button>" +
+      "<span class='hint'>feedback loop: feed the failed verdict back into rule-based selection</span>" +
+      "</div>" +
+      "<div id='replan-body'></div>" +
       "<button class='btn ghost sm' onclick='exportReport()'>Download JSON report</button>");
 
     lastReport = {
@@ -406,12 +411,45 @@ async function runPipeline() {
       diagnosis: diag, pareto_count: n, at: new Date().toISOString(),
     };
     $("export-btn").disabled = false;
+    bind("replan-btn", "click", () => runReplan(part, sel, diag, mid));
   } catch (err) {
     setPanel("summary-body", "<div class='alert bad'>Pipeline failed: " + esc(friendlyError(err)) + "</div>");
     toast(friendlyError(err), "bad");
   } finally {
     btn.disabled = false;
     btn.textContent = "▶ Run pipeline";
+  }
+}
+
+async function runReplan(part, sel, diag, mid) {
+  const body = $("replan-body");
+  if (!body) return;
+  body.innerHTML = "<p class='muted'>Re-planning without " + esc(sel.code) + "…</p>";
+  try {
+    const out = await post("/api/replan", {
+      part, failed_insert: sel.code, point: mid,
+      failed_state: diag ? diag.state : null,
+    });
+    const alt = out.alternative;
+    if (!alt) {
+      body.innerHTML = "<div class='alert warn'><b>Re-plan found no alternative.</b><br>" +
+        esc(out.verdict) + "</div>";
+      return;
+    }
+    const d = alt.diagnosis;
+    body.innerHTML =
+      "<div class='alert " + (out.resolved ? "good" : "warn") + "'>" +
+      "<b>" + (out.resolved ? "Re-plan succeeded." : "Re-plan did not fix it.") + "</b> " +
+      esc(out.verdict) + "</div>" +
+      "<div class='summary-grid'>" +
+      "<div><span>New insert</span><b>" + esc(alt.insert_code) + "</b></div>" +
+      "<div><span>Diagnosis</span><b class='" + stateClass(d.state) + "'>" +
+      esc(d.state.toUpperCase()) + "</b></div>" +
+      "<div><span>V<sub>B</sub> at midpoint</span><b>" + d.v_b_mm + " mm</b></div>" +
+      "<div><span>R<sub>a</sub> at midpoint</span><b>" + d.ra_um + " µm</b></div>" +
+      "</div>";
+  } catch (err) {
+    body.innerHTML = "<div class='alert bad'>" + esc(friendlyError(err)) + "</div>";
   }
 }
 

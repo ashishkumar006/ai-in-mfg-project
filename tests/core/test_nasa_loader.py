@@ -34,3 +34,19 @@ def test_featurised_cache_matches_fresh_build() -> None:
     assert x_cached.shape == x_fresh.shape == (145, 51)
     assert np.allclose(x_cached, x_fresh)
     assert np.allclose(y_cached, y_fresh)
+
+
+def test_labeled_features_align_with_synthetic_schema() -> None:
+    from hybrid_ai.core.nasa_loader import (
+        load_nasa_labeled_features,
+        load_nasa_synthetic_features,
+    )
+
+    X, y, runs, cases = load_nasa_labeled_features()
+    Xs, ys = load_nasa_synthetic_features()
+    assert X.shape == Xs.shape == (145, 11)
+    assert np.allclose(X, Xs)
+    assert np.allclose(y, ys)
+    assert runs.shape == cases.shape == (145,)
+    assert set(runs.tolist()) == set(range(1, 24))
+
