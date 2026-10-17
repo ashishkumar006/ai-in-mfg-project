@@ -7,19 +7,16 @@ install:
 	pip install -e .
 
 test:
-	pytest
+	.\.venv\Scripts\python.exe -m pytest -q
 
 demo:
-	python -m hybrid_ai.dashboard.demo
+	$$env:PYTHONPATH="src"; .\.venv\Scripts\python.exe -m hybrid_ai.dashboard.demo --smoke
 
 dashboard:
-	streamlit run src/hybrid_ai/dashboard/app.py
+	.\.venv\Scripts\streamlit.exe run src\hybrid_ai\dashboard\app.py
 
 web:
-	cd src && ..\.venv\Scripts\python.exe -m uvicorn hybrid_ai.web.api:app --port 8502
+	$$env:PYTHONPATH="src"; .\.venv\Scripts\python.exe -m uvicorn hybrid_ai.web.api:app --port 8502 --app-dir src
 
 clean:
-	for /d /r . %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d"
-	if exist .pytest_cache rd /s /q .pytest_cache
-	if exist data\pareto_front.json del /q data\pareto_front.json
-	if exist demo_outputs rd /s /q demo_outputs
+	.\.venv\Scripts\python.exe -c "import pathlib,shutil; [shutil.rmtree(p,ignore_errors=True) for p in list(pathlib.Path('.').rglob('__pycache__'))]; shutil.rmtree('.pytest_cache',ignore_errors=True); shutil.rmtree('demo_outputs',ignore_errors=True)"

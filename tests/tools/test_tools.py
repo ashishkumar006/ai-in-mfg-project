@@ -19,6 +19,7 @@ def test_registry_has_seven_specs() -> None:
     assert set(REGISTRY) == {
         "select_tool", "predict_wear", "compare_models", "diagnose_state",
         "optimize_pareto", "list_tools", "model_benchmarks",
+        "sweep_pareto", "sensitivity_probe", "propose_recalibration",
     }
     for name, entry in REGISTRY.items():
         spec = entry["spec"]

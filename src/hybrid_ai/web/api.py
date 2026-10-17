@@ -17,7 +17,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from hybrid_ai.agent.factory import make_client
 from hybrid_ai.core.schemas import OperatingPoint, PartSpec
 from hybrid_ai.tools import (
     catalog as catalog_tool,
@@ -26,14 +25,17 @@ from hybrid_ai.tools import (
     compare_models,
     diagnose_state,
     optimize_pareto,
+    propose_recalibration,
     select_tool,
+    sensitivity_probe,
+    sweep_pareto,
 )
 from hybrid_ai.tools import _models as tool_models
 from hybrid_ai.tools.errors import ToolError
 
 ROOT = Path(__file__).resolve().parents[3]
 
-app = FastAPI(title="Hybrid AI Manufacturing", version="0.3.0")
+app = FastAPI(title="Hybrid AI Manufacturing", version="0.4.0")
 
 
 # ---------------------------------------------------------------------------
@@ -72,66 +74,6 @@ class DiagnoseIn(BaseModel):
     point: PointIn
     insert_code: str | None = None
     sensor_source: Literal["synthetic", "measured"] = "synthetic"
-
-
-class ChatIn(BaseModel):
-    message: str = Field(min_length=1, max_length=2000)
-    max_steps: int = Field(default=8, ge=1, le=12)
-
-
-class AgentRunIn(BaseModel):
-    part: PartIn
-    goal: Literal["full", "select", "diagnose", "optimize"] = "full"
-    max_steps: int = Field(default=8, ge=1, le=12)
-    pop_size: int = Field(default=60, ge=8, le=200)
-    n_generations: int = Field(default=40, ge=3, le=200)
-    seed: int = Field(default=42, ge=0)
-    safe_only: bool = True
-    sensor_source: Literal["synthetic", "measured"] = "synthetic"
-    notes: str = Field(default="", max_length=500)
-
-
-def _agent_task(goal: str, part_json: str, body: AgentRunIn) -> str:
-    base = _GOAL_TASKS[goal].format(part=part_json)
-    base += (f" Pareto search must use exactly: pop_size={body.pop_size}, "
-             f"n_generations={body.n_generations}, seed={body.seed}, "
-             f"safe_only={str(body.safe_only).lower()}. "
-             f"Diagnose with sensor_source={body.sensor_source!r}.")
-    if body.notes.strip():
-        base += f" Operator instructions: {body.notes.strip()}"
-    return base
-
-
-_GOAL_TASKS = {
-    "select": ("Select the best insert for this part: {part}. "
-               "You must call select_tool, then diagnose_state at the "
-               "envelope midpoint. Report the insert code, recommended "
-               "envelope, operation plan and midpoint diagnosis."),
-    "diagnose": ("Diagnose the envelope midpoint for this part: {part}. "
-                 "You must call select_tool first (for the envelope), then "
-                 "diagnose_state, then compare_models for corroboration. "
-                 "Report V_B, R_a, state, explanation and what the other "
-                 "models say."),
-    "optimize": ("Produce a safe-only Pareto front for this part: {part}. "
-                 "You must call select_tool, then optimize_pareto, then "
-                 "diagnose_state on the max-MRR point to confirm it. "
-                 "Report the extremes (max MRR, max life, min Ra) plus the "
-                 "confirmation diagnosis."),
-    "full": ("Do the full job for this part: {part}. You must call, in "
-             "order: select_tool, diagnose_state at the envelope midpoint, "
-             "optimize_pareto (safe-only), diagnose_state again on the most "
-             "promising Pareto point, then compare_models. Finish with the "
-             "insert code, operating point, V_B/R_a, diagnosis, Pareto "
-             "extremes and key trade-offs - every number from the tools."),
-}
-
-_GOAL_TOOLS = {
-    "select": ["select_tool", "diagnose_state"],
-    "diagnose": ["select_tool", "diagnose_state", "compare_models"],
-    "optimize": ["select_tool", "optimize_pareto", "diagnose_state"],
-    "full": ["select_tool", "diagnose_state", "optimize_pareto",
-             "compare_models"],
-}
 
 
 def _to_part(p: PartIn) -> PartSpec:
@@ -240,90 +182,76 @@ def model_metrics() -> dict:
     return catalog_tool.run_benchmarks()
 
 
-@app.post("/api/chat")
-def chat(body: ChatIn) -> dict:
-    """Talk to the agent: runs the bounded tool loop and narrates."""
-    from hybrid_ai.agent.loop import run_task
-
-    try:
-        client = make_client()
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-    try:
-        out = run_task(body.message, client, max_steps=body.max_steps)
-    except Exception as exc:
-        raise HTTPException(status_code=502,
-                            detail=f"agent run failed: {exc}")
-    return {"answer": out["answer"], "steps": out["steps"],
-            "truncated": out["truncated"],
-            "transcript": out["transcript"]}
+class SweepIn(BaseModel):
+    part: PartIn
+    insert_code: str | None = None
+    n_seeds: int = Field(default=3, ge=1, le=5)
+    seed_base: int = 42
+    pop_size: int = Field(default=60, ge=8, le=200)
+    n_generations: int = Field(default=40, ge=3, le=200)
+    safe_only: bool = True
 
 
-@app.post("/api/agent_run_stream")
-def agent_run_stream(body: AgentRunIn):
-    """Same as /api/agent_run but streams step events (SSE) then done."""
-    import json
-    import queue
-    import threading
-
-    from fastapi.responses import StreamingResponse
-
-    from hybrid_ai.agent.loop import run_task
-
-    try:
-        client = make_client()
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-    task = _agent_task(body.goal, body.part.model_dump_json(), body)
-    events: queue.Queue = queue.Queue()
-
-    def on_step(entry: dict) -> None:
-        events.put({"event": "step", "data": entry})
-
-    def worker() -> None:
-        try:
-            out = run_task(task, client, max_steps=body.max_steps,
-                           on_step=on_step,
-                           expect_tools=_GOAL_TOOLS[body.goal])
-            events.put({"event": "done",
-                        "data": {"answer": out["answer"], "steps": out["steps"],
-                                 "truncated": out["truncated"],
-                                 "transcript": out["transcript"]}})
-        except Exception as exc:
-            events.put({"event": "error", "data": {"message": str(exc)}})
-
-    threading.Thread(target=worker, daemon=True).start()
-
-    def gen():
-        while True:
-            msg = events.get()
-            yield (f"event: {msg['event']}\n"
-                   f"data: {json.dumps(msg['data'], default=str)}\n\n")
-            if msg["event"] in ("done", "error"):
-                break
-
-    return StreamingResponse(gen(), media_type="text/event-stream")
+class SensitivityIn(BaseModel):
+    part: PartIn
+    point: PointIn
+    insert_code: str | None = None
+    sensor_source: Literal["synthetic", "measured"] = "synthetic"
+    rel_delta: float = Field(default=0.1, ge=0.01, le=0.5)
 
 
-@app.post("/api/agent_run")
-def agent_run(body: AgentRunIn) -> dict:
-    """Fill-the-form flow: run the agent on a full part spec + goal."""
-    from hybrid_ai.agent.loop import run_task
+class RecalibrateIn(BaseModel):
+    target_ra_um: float = Field(default=1.6, ge=0.1, le=10.0)
+    vibration_g: float = Field(default=1.0, ge=0.0, le=5.0)
+    v_b_low: float | None = None
+    v_b_mid: float | None = None
+    v_b_high: float | None = None
+    ra_low: float | None = None
+    ra_mid: float | None = None
+    ra_high: float | None = None
+    vib_low: float | None = None
+    vib_mid: float | None = None
+    vib_high: float | None = None
 
-    try:
-        client = make_client()
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-    task = _agent_task(body.goal, body.part.model_dump_json(), body)
-    try:
-        out = run_task(task, client, max_steps=body.max_steps,
-                       expect_tools=_GOAL_TOOLS[body.goal])
-    except Exception as exc:
-        raise HTTPException(status_code=502,
-                            detail=f"agent run failed: {exc}")
-    return {"goal": body.goal, "answer": out["answer"],
-            "steps": out["steps"], "truncated": out["truncated"],
-            "transcript": out["transcript"]}
+
+@app.post("/api/sweep")
+def sweep(body: SweepIn) -> dict:
+    return _call(
+        sweep_pareto.run,
+        _to_part(body.part), insert_code=body.insert_code,
+        n_seeds=body.n_seeds, seed_base=body.seed_base,
+        pop_size=body.pop_size, n_generations=body.n_generations,
+        safe_only=body.safe_only,
+    )
+
+
+@app.post("/api/sensitivity")
+def sensitivity(body: SensitivityIn) -> dict:
+    return _call(
+        sensitivity_probe.run,
+        _to_part(body.part), _to_point(body.point),
+        insert_code=body.insert_code, sensor_source=body.sensor_source,
+        rel_delta=body.rel_delta,
+    )
+
+
+@app.post("/api/propose_recalibration")
+def propose_recalibration_route(body: RecalibrateIn) -> dict:
+    return _call(
+        propose_recalibration.run,
+        target_ra_um=body.target_ra_um, vibration_g=body.vibration_g,
+        v_b_low=body.v_b_low, v_b_mid=body.v_b_mid,
+        v_b_high=body.v_b_high, ra_low=body.ra_low, ra_mid=body.ra_mid,
+        ra_high=body.ra_high, vib_low=body.vib_low, vib_mid=body.vib_mid,
+        vib_high=body.vib_high,
+    )
+
+
+_ARCHIVED_AGENT_NOTE = (
+    "Agentic endpoints (/api/chat, /api/agent_run, "
+    "/api/agent_run_stream) archived to "
+    "archive/agentic-setup/web/api.agent_endpoints.py."
+)
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"

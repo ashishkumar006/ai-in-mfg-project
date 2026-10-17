@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hybrid AI Manufacturing — Agent Console</title>
+<link rel="stylesheet" href="styles.css?v=2">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
+<script src="app.js?v=2" defer></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">H</div>
+    <div>
+      <div class="title">Hybrid AI Manufacturing</div>
+      <div class="subtitle">Describe the part — the agent runs the pipeline and reports back</div>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span id="status-pill" class="pill">connecting…</span>
+    <button id="export-btn" class="btn ghost" disabled>Export report</button>
+  </div>
+</header>
+
+<nav class="section-nav">
+  <a href="#sec-agent">1 · Agent</a>
+  <a href="#sec-results">2 · Results</a>
+</nav>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- Section 1: everything the agent needs from you -->
+<section class="band" id="sec-agent">
+  <div class="wrap">
+    <h2 class="band-title">1 · Talk to the agent</h2>
+    <div class="cols3">
+      <div class="card">
+        <h3>Pick a part</h3>
+        <div class="chips" id="preset-row">
+          <button class="chipbtn" data-preset="shaft">SHAFT-A12 · steel turning</button>
+          <button class="chipbtn" data-preset="bracket">BRACKET-N7 · alu milling</button>
+          <button class="chipbtn" data-preset="turbine">TURBINE-S3 · superalloy</button>
+        </div>
+        <label>Part ID<input id="part-id" value="BRACKET-A1" maxlength="32"></label>
+        <label>Material<input id="material" value="AISI 1045 steel" maxlength="64"></label>
+        <div class="row2">
+          <label>ISO group
+            <select id="iso"><option>P</option><option>M</option><option>K</option><option>N</option><option>S</option></select>
+          </label>
+          <label>Operation
+            <select id="op"><option>turning</option><option>facing</option><option>milling</option><option>drilling</option><option>boring</option></select>
+          </label>
+        </div>
+        <label>Machine class
+          <select id="machine"><option>light</option><option selected>medium</option><option>heavy</option></select>
+        </label>
+        <label>Hardness (HB) <span id="hard-val" class="val">220</span>
+          <input id="hard" type="range" min="120" max="420" step="10" value="220">
+        </label>
+        <label>Target Ra (µm) <span id="ra-val" class="val">1.6</span>
+          <input id="ra" type="range" min="0.4" max="3.2" step="0.1" value="1.6">
+        </label>
+        <label>Batch size<input id="batch" type="number" min="1" max="5000" value="50"></label>
+      </div>
+
+      <div class="card">
+        <h3>Command the agent</h3>
+        <label>Agent goal
+          <select id="goal">
+            <option value="full">Full job — plan, diagnose, optimise, compare</option>
+            <option value="probe">Stress-test — sweep seeds, probe sensitivity</option>
+            <option value="select">Select tool only</option>
+            <option value="diagnose">Diagnose midpoint only</option>
+            <option value="optimize">Optimize front only</option>
+          </select>
+        </label>
+        <label>Extra instructions (optional)
+          <input id="notes" maxlength="500" placeholder="e.g. prefer long tool life over speed" autocomplete="off">
+        </label>
+        <button id="agent-btn" class="btn primary wide">Run agent on this part</button>
+        <label>Or ask anything <span class="tag">uses your part</span>
+          <input id="ask" maxlength="500" placeholder="e.g. is Vc 300, f 0.4 safe here?" autocomplete="off">
+        </label>
+        <button id="ask-btn" class="btn ghost wide">Ask a question instead</button>
+      </div>
+
+      <div class="card">
+        <h3>Optimiser settings</h3>
+        <div class="row3">
+          <label>Pop.<input id="pop" type="number" min="8" max="200" value="60"></label>
+          <label>Gens<input id="gens" type="number" min="3" max="200" value="40"></label>
+          <label>Seed<input id="seed" type="number" min="0" max="9999" value="42"></label>
+        </div>
+        <label class="check"><input id="safe" type="checkbox" checked> Safe-only front (fuzzy gate)</label>
+        <h3 class="mt">How it works</h3>
+        <ol class="legend">
+          <li><b>You</b> describe the part</li>
+          <li><b>Agent</b> calls select → diagnose → optimise → compare / sweep / sensitivity tools</li>
+          <li><b>You</b> scroll down and read what it made</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Section 2: everything the agent prepared -->
+<section class="band band-alt" id="sec-results">
+  <div class="wrap">
+    <h2 class="band-title">2 · What the agent prepared</h2>
+
+    <div class="card">
+      <h3>Agent answer</h3>
+      <div id="agent-body"><p class="muted">Nothing yet — run the agent above.</p></div>
+    </div>
+
+    <div class="card">
+      <h3>Tool calls <span class="tag">audit trail</span></h3>
+      <div id="transcript-body"><p class="muted">No tool calls yet.</p></div>
+    </div>
+
+    <div class="cols2">
+      <div class="card">
+        <h3>CAPP &amp; tool selection</h3>
+        <div id="capp-body"><p class="muted">Waiting for a run…</p></div>
+      </div>
+      <div class="card">
+        <h3>Machining diagnosis <span id="diag-src" class="tag hidden"></span></h3>
+        <div class="seg">
+          <button id="src-synth" class="seg-btn active" type="button">Synthetic sensor</button>
+          <button id="src-meas" class="seg-btn" type="button">Measured NASA run</button>
+        </div>
+        <div id="diag-body"><p class="muted">Waiting for a run…</p></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Pareto front <span class="tag">max MRR &amp; life, min Ra</span></h3>
+      <div id="pareto-extremes" class="chips"></div>
+      <div id="pareto-plot" class="plot"><p class="muted">Waiting for a run…</p></div>
+      <p class="hint">Tip: click any point to diagnose that exact operating point.</p>
+    </div>
+
+    <div class="cols2">
+      <div class="card">
+        <h3>Model comparison</h3>
+        <div id="models-body"><p class="muted">Waiting for a run…</p></div>
+      </div>
+      <div class="card">
+        <h3>Benchmarks</h3>
+        <div id="metrics-body"><p class="muted">Waiting for a run…</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">MLP: blended synthetic + NASA · CNNs: NASA windows · CNN-BiLSTM: PHM 2010 · checkpoints in <code>models/</code></footer>
+</body>
+</html>

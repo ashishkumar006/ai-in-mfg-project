@@ -3,152 +3,204 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hybrid AI Manufacturing</title>
-<link rel="stylesheet" href="styles.css">
+<meta name="theme-color" content="#0b1220">
+<title>Hybrid AI Manufacturing — Pipeline Console</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f9cf9'/%3E%3Ctext x='32' y='45' font-size='38' font-weight='800' font-family='Arial' fill='%2306121f' text-anchor='middle'%3EH%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css?v=5">
+<script>try{var t=localStorage.getItem("hai-theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
-<script src="app.js" defer></script>
+<script src="app.js?v=5" defer></script>
 </head>
 <body>
+
 <header class="topbar">
   <div class="brand">
     <div class="logo">H</div>
     <div>
       <div class="title">Hybrid AI Manufacturing</div>
-      <div class="subtitle">Rule-based CAPP &middot; neural wear prediction &middot; fuzzy diagnosis &middot; Pareto optimisation</div>
+      <div class="subtitle">CAPP · wear prediction · diagnosis · Pareto optimisation</div>
     </div>
   </div>
   <div class="top-actions">
-    <span id="status-pill" class="pill">connecting&hellip;</span>
+    <span id="status-pill" class="pill" role="status" aria-live="polite">connecting…</span>
+    <button id="theme-btn" class="btn ghost" title="Toggle light / dark theme" aria-label="Toggle light or dark theme">Dark</button>
     <button id="export-btn" class="btn ghost" disabled>Export report</button>
   </div>
 </header>
 
-<div class="layout">
-  <aside class="sidebar">
-    <form id="part-form" class="card">
-      <h2>Part specification</h2>
-      <label>Part ID<input id="f-part-id" value="BRACKET-A1" maxlength="32"></label>
-      <label>Material<input id="f-material" value="AISI 1045 steel" maxlength="64"></label>
-      <div class="row2">
-        <label>ISO group
-          <select id="f-iso">
-            <option>P</option><option>M</option><option>K</option><option>N</option><option>S</option>
-          </select>
-        </label>
-        <label>Operation
-          <select id="f-op">
-            <option>turning</option><option>facing</option><option>milling</option>
-            <option>drilling</option><option>boring</option>
-          </select>
-        </label>
-      </div>
-      <label>Machine class
-        <select id="f-machine">
-          <option>light</option><option selected>medium</option><option>heavy</option>
-        </select>
-      </label>
-      <label>Hardness (HB) <span id="v-hard" class="val">220</span>
-        <input id="f-hard" type="range" min="120" max="420" step="10" value="220">
-      </label>
-      <label>Target R<sub>a</sub> (&micro;m) <span id="v-ra" class="val">1.6</span>
-        <input id="f-ra" type="range" min="0.4" max="3.2" step="0.1" value="1.6">
-      </label>
-      <label>Batch size<input id="f-batch" type="number" min="1" max="5000" value="50"></label>
-    </form>
+<nav class="section-nav">
+  <a href="#sec-input" class="active">Run</a>
+  <a href="#sec-results">Results</a>
+  <a href="#sec-help">How it works</a>
+  <a href="/pipeline.html" target="_blank" rel="noopener">Pipeline tour ↗</a>
+</nav>
 
-    <div class="card">
-      <h2>Optimiser</h2>
-      <div class="row3">
-        <label>Pop.<input id="f-pop" type="number" min="8" max="200" value="60"></label>
-        <label>Gens<input id="f-gens" type="number" min="3" max="200" value="40"></label>
-        <label>Seed<input id="f-seed" type="number" min="0" max="9999" value="42"></label>
+<div id="toast" class="toast hidden"></div>
+
+<!-- ===================== 1 · INPUT ===================== -->
+<section class="band" id="sec-input">
+  <div class="wrap">
+    <div class="band-head">
+      <div>
+        <h2 class="band-title">1 · Describe the part</h2>
+        <p class="hint">Fill this in and press <b>Run pipeline</b>. Everything runs locally — no API key, no model download.</p>
       </div>
-      <label class="check"><input id="f-safe" type="checkbox" checked> Safe-only front (fuzzy gate)</label>
-      <p class="hint">Feeds the agent's Pareto search on the next run.</p>
+      <button id="run-btn" class="btn primary lg">▶ Run pipeline</button>
     </div>
 
-    <div class="card">
-      <h2>Agent controls</h2>
-      <label>Agent goal
-        <select id="f-goal">
-          <option value="full">Full job</option>
-          <option value="select">Select tool</option>
-          <option value="diagnose">Diagnose</option>
-          <option value="optimize">Optimize</option>
-        </select>
-      </label>
-      <label>Extra instructions (optional)
-        <input id="f-notes" maxlength="500" placeholder="e.g. prefer long tool life over speed" autocomplete="off">
-      </label>
-      <button type="button" id="agent-btn" class="btn primary" style="width:100%">Run agent on this part</button>
-      <label style="margin-top:0.6rem">Or ask anything <span class="tag">uses your part</span>
-        <input id="f-ask" maxlength="500" placeholder="e.g. is Vc 300, f 0.4 safe here?" autocomplete="off">
-      </label>
-      <button type="button" id="ask-btn" class="btn ghost" style="width:100%;margin-top:0.4rem">Ask a question instead</button>
-    </div>
-
-    <div class="card legend">
-      <h2>Pipeline</h2>
-      <ol>
-        <li><b>CLIPS</b> picks the insert + CAPP plan</li>
-        <li><b>ANN</b> predicts flank wear V<sub>B</sub> + finish R<sub>a</sub></li>
-        <li><b>Fuzzy</b> rates safe / caution / critical</li>
-        <li><b>NSGA-II</b> maps the Pareto trade-off</li>
-      </ol>
-    </div>
-  </aside>
-
-  <main class="main">
-    <div id="toast" class="toast hidden"></div>
-
-    <section class="card agent-hero">
-      <h2>Agent results</h2>
-      <p class="hint">Pick a preset to fill the form, set the goal on the left,
-        press Run — the agent works the tools live and everything below fills in.</p>
-      <div class="chips" id="preset-row">
-        <button class="chipbtn" data-preset="shaft">SHAFT-A12 · steel turning</button>
-        <button class="chipbtn" data-preset="bracket">BRACKET-N7 · alu milling</button>
-        <button class="chipbtn" data-preset="turbine">TURBINE-S3 · superalloy</button>
-      </div>
-      <div id="agent-body"><p class="muted">Nothing yet — run the agent from the left panel.</p></div>
-    </section>
-
-    <section class="grid2">
-      <div class="card" id="capp-card">
-        <h2>CAPP &amp; tool selection</h2>
-        <div id="capp-body"><p class="muted">Running&hellip;</p></div>
-      </div>
-      <div class="card" id="diag-card">
-        <h2>Machining diagnosis <span id="diag-src" class="tag hidden"></span></h2>
-        <div class="seg" role="group" aria-label="Sensor source">
-          <button id="src-synth" class="seg-btn active" type="button">Synthetic sensor</button>
-          <button id="src-meas" class="seg-btn" type="button">Measured NASA run</button>
+    <div class="cols3">
+      <!-- Part card -->
+      <div class="card">
+        <h3>Part <span class="tag">start here</span></h3>
+        <div class="chips" id="preset-row">
+          <button class="chipbtn" data-preset="shaft">SHAFT-A12 · steel</button>
+          <button class="chipbtn" data-preset="bracket">BRACKET-N7 · alu</button>
+          <button class="chipbtn" data-preset="turbine">TURBINE-S3 · Inconel</button>
         </div>
-        <div id="diag-body"><p class="muted">Running&hellip;</p></div>
+        <label>Part ID
+          <input id="part-id" value="BRACKET-A1" maxlength="32" autocomplete="off">
+        </label>
+        <label>Material
+          <input id="material" value="AISI 1045 steel" maxlength="64" autocomplete="off">
+        </label>
+        <label class="req">ISO group
+          <select id="iso"><option>P</option><option>M</option><option>K</option><option>N</option><option>S</option></select>
+          <span class="hint">Steel P · Stainless M · Cast iron K · Aluminium N · Superalloy S</span>
+        </label>
+        <label class="req">Operation
+          <select id="op"><option>turning</option><option>facing</option><option>milling</option><option>drilling</option><option>boring</option></select>
+        </label>
+        <label class="req">Machine class
+          <select id="machine"><option>light</option><option selected>medium</option><option>heavy</option></select>
+          <span class="hint">Rigid machines can take deeper cuts</span>
+        </label>
       </div>
-    </section>
 
-    <section class="card">
-      <h2>Pareto front <span class="tag">max MRR &amp; life, min R<sub>a</sub></span></h2>
+      <!-- Material + target card -->
+      <div class="card">
+        <h3>Material &amp; finish</h3>
+        <label class="req">Hardness <span class="val" id="hard-val">220</span> HB
+          <input id="hard" type="range" min="120" max="420" step="10" value="220">
+          <span class="hint">Soft aluminium ~120 · hardened steel ~300+</span>
+        </label>
+        <label class="req">Target Ra <span class="val" id="ra-val">1.6</span> µm
+          <input id="ra" type="range" min="0.4" max="3.2" step="0.1" value="1.6">
+          <span class="hint">Tighter Ra tightens the safe band</span>
+        </label>
+        <label>Batch size
+          <input id="batch" type="number" min="1" max="5000" value="50">
+          <span class="hint">Only used for context — economics, not the physics</span>
+        </label>
+        <div class="note" id="preview-note"></div>
+      </div>
+
+      <!-- Optimiser card -->
+      <div class="card">
+        <h3>Optimiser</h3>
+        <div class="row3">
+          <label>Pop.<input id="pop" type="number" min="8" max="200" value="60"></label>
+          <label>Gens<input id="gens" type="number" min="3" max="200" value="40"></label>
+          <label>Seed<input id="seed" type="number" min="0" max="9999" value="42"></label>
+        </div>
+        <label class="check"><input id="safe" type="checkbox" checked> Safe-only front (fuzzy gate)</label>
+        <p class="hint" id="budget-hint"></p>
+        <h3 class="mt">Sensor source</h3>
+        <div class="seg">
+          <button id="src-synth" class="seg-btn active" type="button">Synthetic</button>
+          <button id="src-meas" class="seg-btn" type="button">Measured NASA</button>
+        </div>
+        <p class="hint">Synthetic = clean signal. Measured = real NASA run (noisier, more realistic).</p>
+      </div>
+    </div>
+
+    <div class="quickstart">
+      <b>New here?</b> Click a preset chip above, then press <b>Run pipeline</b>. Results scroll down automatically.
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 2 · RESULTS ===================== -->
+<section class="band band-alt" id="sec-results">
+  <div class="wrap">
+    <h2 class="band-title">2 · Results</h2>
+
+    <div class="card summary-card">
+      <h3>Summary <span class="tag" id="summary-tag"></span></h3>
+      <ol class="stepper" id="stepper">
+        <li data-step="1"><span class="sdot">1</span> Tool selection</li>
+        <li data-step="2"><span class="sdot">2</span> Wear &amp; diagnosis</li>
+        <li data-step="3"><span class="sdot">3</span> Pareto search</li>
+        <li data-step="4"><span class="sdot">4</span> Model cross-check</li>
+      </ol>
+      <div id="summary-body" aria-live="polite"><p class="muted">Nothing yet — run the pipeline above.</p></div>
+    </div>
+
+    <div class="cols2">
+      <div class="card">
+        <h3>1 · Tool selection <span class="tag">CLIPS rules</span></h3>
+        <div id="capp-body" class="loading">Waiting for a run…</div>
+      </div>
+      <div class="card">
+        <h3>2 · Diagnosis <span id="diag-src" class="tag hidden"></span> <span id="diag-badge"></span></h3>
+        <div id="diag-body" class="loading">Waiting for a run…</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>3 · Pareto front <span class="tag">max MRR &amp; life, min Ra</span></h3>
       <div id="pareto-extremes" class="chips"></div>
-      <div id="pareto-plot" class="plot"></div>
-      <p class="hint">Tip: click any point to diagnose that exact operating point.</p>
-    </section>
+      <div id="pareto-plot" class="plot"><p class="muted">Waiting for a run…</p></div>
+      <p class="hint">Each dot is a valid cutting setting. <b>Click any dot</b> to diagnose that exact setting.</p>
+    </div>
 
-    <section class="grid2">
+    <div class="cols2">
       <div class="card">
-        <h2>Model comparison</h2>
-        <div id="models-body"><p class="muted">Running&hellip;</p></div>
+        <h3>4 · Model comparison</h3>
+        <p class="hint">Five trained models predicting the same point. Disagreement = uncertainty.</p>
+        <div id="models-body" class="loading">Waiting for a run…</div>
       </div>
       <div class="card">
-        <h2>Benchmarks</h2>
-        <div id="metrics-body"><p class="muted">Running&hellip;</p></div>
+        <h3>Model accuracy <span class="tag">held-out</span></h3>
+        <p class="hint">RMSE on unseen data. Lower is better.</p>
+        <div id="metrics-body" class="loading">Waiting for a run…</div>
       </div>
-    </section>
+    </div>
+  </div>
+</section>
 
-  </main>
-</div>
+<!-- ===================== 3 · HELP ===================== -->
+<section class="band" id="sec-help">
+  <div class="wrap">
+    <h2 class="band-title">3 · How to read this</h2>
+    <div class="cols2">
+      <div class="card">
+        <h3>The four stages</h3>
+        <ol class="legend">
+          <li><b>CLIPS rules</b> — picks the insert and a safe envelope from ISO + operation + machine.</li>
+          <li><b>Neural network</b> — predicts flank wear V<sub>B</sub> and roughness R<sub>a</sub> at a given setting.</li>
+          <li><b>Fuzzy logic</b> — turns those numbers into <span class="state-safe">safe</span> / <span class="state-caution">caution</span> / <span class="state-critical">critical</span>, with a reason.</li>
+          <li><b>NSGA-II</b> — searches the envelope for settings that balance output, tool life and finish.</li>
+        </ol>
+        <p class="hint"><a href="/pipeline.html">Open the guided tour ↗</a></p>
+      </div>
+      <div class="card">
+        <h3>What the numbers mean</h3>
+        <table class="data">
+          <tr><th>Term</th><th>Meaning</th></tr>
+          <tr><td>V<sub>B</sub></td><td>Flank wear in mm. Bigger = more worn = change the insert.</td></tr>
+          <tr><td>R<sub>a</sub></td><td>Surface roughness in µm. Smaller = smoother finish.</td></tr>
+          <tr><td>MRR</td><td>Material removal rate, cm³/min. Bigger = faster cutting.</td></tr>
+          <tr><td>Life</td><td>Estimated minutes before the insert wears out.</td></tr>
+          <tr><td>Envelope</td><td>Safe range of speed / feed / depth for the chosen insert.</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
 
-<footer class="foot">MLP: blended synthetic + NASA &middot; CNNs: NASA windows &middot; CNN-BiLSTM: PHM 2010 &middot; checkpoints in <code>models/</code></footer>
+<footer class="foot">
+  MLP: blended synthetic + NASA · CNNs: NASA windows · CNN-BiLSTM: PHM 2010 · checkpoints in <code>models/</code>
+  · runs fully offline
+</footer>
 </body>
 </html>

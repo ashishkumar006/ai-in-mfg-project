@@ -32,3 +32,6 @@ uvicorn>=0.30
 # Testing
 pytest>=7.4
 httpx>=0.27
+
+# Checks only (scripts/checks/pdf_images.py, read_pdf.py) — not runtime
+pypdf>=6.0

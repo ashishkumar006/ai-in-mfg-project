@@ -29,6 +29,13 @@ def test_prompts_and_registry_load() -> None:
     assert {"select_tool", "diagnose_state", "optimize_pareto"} <= names
 
 
+def test_system_prompt_demands_agentic_behavior() -> None:
+    text = load_prompt("system")
+    for phrase in ("never skip", "Verify across tools", "not a chatbot",
+                   "unfinished job"):
+        assert phrase in text, f"system prompt lost: {phrase}"
+
+
 def test_happy_path_uses_tool_then_answers() -> None:
     client = ScriptedClient([
         {"tool": "select_tool", "args": {"part": PART}},
@@ -175,3 +182,23 @@ def test_full_chain_select_diagnose_optimize() -> None:
     assert tools_used == ["select_tool", "diagnose_state", "optimize_pareto"]
     pareto_obs = str(out["transcript"][2]["observation"])
     assert "solutions" in pareto_obs
+
+
+def test_tool_syntax_answer_is_nudged_to_prose() -> None:
+    class JunkThenProse:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(self, messages: list[dict], specs: list[dict]) -> dict:
+            self.calls += 1
+            if self.calls == 1:
+                return {"tool": "list_tools", "args": {}}
+            if self.calls == 2:
+                return {"answer": "{'tool': 'list_tools', 'args': {}}"}
+            return {"answer": "Tools: list_tools."}
+
+    client = JunkThenProse()
+    out = run_task("list", client, max_steps=5, expect_tools=["list_tools"])
+    assert out["truncated"] is False
+    assert out["answer"] == "Tools: list_tools."
+    assert client.calls == 3

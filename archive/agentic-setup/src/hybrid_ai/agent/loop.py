@@ -61,6 +61,17 @@ def run_task(task: str, client: ModelClient, max_steps: int = 8,
                     "truncated": True}
         if "answer" in call:
             missing = _missing_tools(transcript, expect_tools)
+            answer_text = str(call["answer"])
+            if _looks_like_tool_call(answer_text):
+                messages.append({"role": "assistant",
+                                 "content": answer_text})
+                messages.append({"role": "user",
+                                 "content": ("That answer is raw tool-call "
+                                             "syntax, not operator prose. "
+                                             "Reply with the results in "
+                                             "plain words and short tables.")})
+                steps += 1
+                continue
             if missing:
                 messages.append({"role": "assistant",
                                  "content": str(call["answer"])})
@@ -113,6 +124,13 @@ def run_task(task: str, client: ModelClient, max_steps: int = 8,
         steps += 1
     return {"answer": "Stopped: step budget exhausted. Escalating to the operator.",
             "transcript": transcript, "steps": steps, "truncated": True}
+
+
+def _looks_like_tool_call(text: str) -> bool:
+    """Detect raw tool-call syntax leaking into the final answer."""
+    low = text.lower()
+    return ("tool" in low and "args" in low
+            and ("{" in text or ":" in text))
 
 
 def _missing_tools(transcript: list[dict],

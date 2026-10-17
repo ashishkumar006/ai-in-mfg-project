@@ -1,9 +1,9 @@
-"""The tools layer: the prominent, LLM/MCP-consumable interface.
+"""The tools layer: the prominent deterministic interface.
 
 Each module exposes a typed ``run()`` plus a ``TOOL_SPEC`` dict
 (name, description, JSON parameter schema). Stage engines under
 ``hybrid_ai.stages`` are only ever called from here (and legacy
-frontends); new consumers — agents, MCP servers, dashboards —
+frontends); new consumers — web API, dashboards, scripts —
 reference tools first.
 """
 
@@ -15,7 +15,10 @@ from hybrid_ai.tools import (
     diagnose_state,
     optimize_pareto,
     predict_wear,
+    propose_recalibration,
     select_tool,
+    sensitivity_probe,
+    sweep_pareto,
 )
 from hybrid_ai.tools.errors import ToolError
 
@@ -34,6 +37,14 @@ REGISTRY: dict[str, dict] = {
         "spec": catalog.LIST_SPEC, "run": catalog.run_list},
     catalog.BENCHMARKS_SPEC["name"]: {
         "spec": catalog.BENCHMARKS_SPEC, "run": catalog.run_benchmarks},
+    sweep_pareto.TOOL_SPEC["name"]: {
+        "spec": sweep_pareto.TOOL_SPEC, "run": sweep_pareto.run},
+    sensitivity_probe.TOOL_SPEC["name"]: {
+        "spec": sensitivity_probe.TOOL_SPEC,
+        "run": sensitivity_probe.run},
+    propose_recalibration.TOOL_SPEC["name"]: {
+        "spec": propose_recalibration.TOOL_SPEC,
+        "run": propose_recalibration.run},
 }
 
 __all__ = [
@@ -44,7 +55,10 @@ __all__ = [
     "diagnose_state",
     "optimize_pareto",
     "predict_wear",
+    "propose_recalibration",
     "select_tool",
+    "sensitivity_probe",
+    "sweep_pareto",
     "validate_args",
 ]
 

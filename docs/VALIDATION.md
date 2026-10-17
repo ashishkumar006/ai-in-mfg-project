@@ -177,7 +177,7 @@ physical clips (V_B 0.02–1.5, R_a 0.2–6.0).
   deriving tolerance bands, silently disabling the gate — fixed and
   covered by `test_safe_only_front_is_all_safe`.
 
-## 10. Agent-driven findings (SLM smoke test, qwen2.5:1.5b local)
+## 10. Agent-driven findings (historical; loop archived to `archive/agentic-setup/`)
 
 - Running the real agent loop against a 1.5B model caught a genuine
   fuzzy bug: the critical trapezoid fell back to zero past 1.4×high,

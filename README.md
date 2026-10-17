@@ -31,23 +31,18 @@ Full architecture and rationale: see `docs/ARCHITECTURE.md`.
 
 ```
 me project/
-|-- README.md
-|-- AGENTS.md
-|-- docs/
-|   |-- ARCHITECTURE.md
-|   |-- MODULE_BREAKDOWN.md
-|   |-- DATA_PLAN.md
-|   |-- IMPLEMENTATION_PLAN.md
-|   |-- VALIDATION.md
-|   |-- DATASET_INVENTORY.md
-|   |-- PIPELINE_WALKTHROUGH.md
-|   `-- PROJECT_WALKTHROUGH.md
-|-- src/
-|   `-- hybrid_ai/        # Python package (fully implemented)
-|-- data/                 # raw + processed datasets (gitignored)
-|-- notebooks/            # exploration notebooks + Colab script
-|-- tests/                # pytest suite (34 tests, all passing)
-`-- models/               # trained .pt checkpoints (gitignored)
+|-- README.md / AGENTS.md / Makefile / pyproject.toml / requirements.txt
+|-- docs/                 # ARCHITECTURE, MODULE_BREAKDOWN, TOOLS, VALIDATION, ...
+|   `-- Hybrid_AI_Manufacturing.pdf
+|-- src/hybrid_ai/        # core/ stages/ tools/ web/ dashboard/
+|-- tests/                # mirrors src (130 tests, all passing on .venv)
+|-- scripts/training|checks/
+|-- archive/agentic-setup/  # archived LLM loop (see its README)
+|-- vendor/unrar/         # UnRAR.exe + LICENSE (unreferenced, Windows-only)
+|-- data/                 # raw/ + processed/ (gitignored) + README
+|-- models/               # trained .pt/.joblib checkpoints
+|-- notebooks/            # colab_train.py
+`-- demo_outputs/         # regenerated demo artifacts (gitignored)
 ```
 
 ## Tech stack
@@ -90,7 +85,7 @@ Two frontends share the same pipeline:
 
 | Dashboard | URL | Notes |
 |---|---|---|
-| **New web UI** (FastAPI + single page, dark theme) | http://127.0.0.1:8502 | Clickable Pareto points, full-report export, Big PHM model row, agent chat + form→agent runs |
+| **New web UI** (FastAPI + single page, dark theme) | http://127.0.0.1:8502 | Clickable Pareto points, full-report export, Big PHM model row, deterministic pipeline runs |
 | Streamlit (classic) | http://127.0.0.1:8501 | Original tabbed UI |
 
 ```powershell

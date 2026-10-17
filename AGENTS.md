@@ -28,8 +28,8 @@ consistently.
   `src/hybrid_ai/stages/` (`clips/`, `ann/`, `fuzzy/`, `nsga2/`);
   touch them only when the logic itself must change.
 - Shared data structures live in `src/hybrid_ai/core/`.
-- Agent scaffolding (prompts, registry, loop) lives in
-  `src/hybrid_ai/agent/`.
+- Former LLM agent scaffolding is archived in
+  `archive/agentic-setup/`; do not add new agent code to the live tree.
 - Streamlit dashboard lives in `src/hybrid_ai/dashboard/`; the web
   API + frontend in `src/hybrid_ai/web/`.
 - Tests mirror the package layout under `tests/`.

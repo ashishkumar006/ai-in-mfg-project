@@ -1,576 +1,498 @@
 "use strict";
+/* Deterministic pipeline console: part form -> tools API -> panels. No build step, no LLM. */
 
-function $(id) { return document.getElementById(id); }
+const $ = (id) => document.getElementById(id);
 
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, function (c) {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-  });
-}
-
-function num(x, d) {
-  if (x === null || x === undefined || isNaN(Number(x))) return "—";
-  return Number(x).toFixed(d === undefined ? 3 : d);
-}
-
-const state = {
-  part: null, capp: null, pareto: [], extremes: {},
-  diagnosis: null, compare: [], midpoint: null,
-  sensorSource: "synthetic", diagPoint: null,
+const PRESETS = {
+  shaft:   { partId: "SHAFT-A12", material: "AISI 4140 steel", iso: "P", op: "turning", machine: "medium", hard: 300, ra: 0.8, batch: 100 },
+  bracket: { partId: "BRACKET-N7", material: "Al 6061", iso: "N", op: "milling", machine: "light", hard: 120, ra: 1.6, batch: 200 },
+  turbine: { partId: "TURBINE-S3", material: "Inconel 718", iso: "S", op: "turning", machine: "heavy", hard: 380, ra: 0.8, batch: 20 },
 };
 
-async function api(path, body) {
-  let res;
-  try {
-    res = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    throw new Error("server unreachable (" + e.message + ")");
-  }
-  let data = null;
-  try { data = await res.json(); } catch (e) { /* ignore */ }
-  if (!res.ok) {
-    const detail = data && data.detail ? data.detail : ("HTTP " + res.status);
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
-  }
+const ISO_NAMES = { P: "Steel", M: "Stainless", K: "Cast iron", N: "Aluminium", S: "Superalloy" };
+
+let lastPareto = [];
+let lastReport = null;
+let sensorSource = "synthetic";
+
+/* ---------- tiny helpers ---------- */
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function toast(msg, kind) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast" + (kind ? " " + kind : "");
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.add("hidden"), 6000);
+}
+
+function friendlyError(err) {
+  const m = String(err.message || err);
+  if (/HTTP 422/.test(m)) return "Some inputs are out of range. Check ISO group, hardness and target Ra.";
+  if (/HTTP 404/.test(m)) return "That insert code does not exist in the catalog.";
+  if (/no insert|no_match/i.test(m)) return "No catalog insert matches this combination. Try a different operation or ISO group.";
+  if (/Failed to fetch|NetworkError/i.test(m)) return "Cannot reach the server. Is it still running on port 8502?";
+  return m;
+}
+
+async function post(path, body) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || ("HTTP " + r.status));
   return data;
 }
 
-function toast(msg) {
-  const t = $("toast");
-  if (!msg) { t.classList.add("hidden"); return; }
-  t.textContent = msg;
-  t.classList.remove("hidden");
+function stateClass(s) {
+  return s === "safe" ? "state-safe" : s === "caution" ? "state-caution" : "state-critical";
 }
 
-function readPart() {
+function badgeFor(state) {
+  return "<span class='badge " + esc(state) + "'>" + esc(state.toUpperCase()) + "</span>";
+}
+
+function scrollToResults() {
+  $("sec-results").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function setPanel(id, html, loading) {
+  const el = $(id);
+  el.classList.toggle("loading", !!loading);
+  el.innerHTML = html;
+}
+
+/* ---------- run stepper ---------- */
+
+function stepState(n, state) {
+  const li = document.querySelector('#stepper li[data-step="' + n + '"]');
+  if (!li) return;
+  li.classList.remove("active", "done", "fail");
+  if (state) li.classList.add(state);
+  const dot = li.querySelector(".sdot");
+  if (dot) dot.textContent = state === "done" ? "✓" : state === "fail" ? "×" : n;
+}
+
+function resetStepper() {
+  [1, 2, 3, 4].forEach((n) => stepState(n, null));
+}
+
+/* ---------- theme ---------- */
+
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem("hai-theme", theme); } catch (e) {}
+  const b = $("theme-btn");
+  if (b) b.textContent = theme === "light" ? "Light" : "Dark";
+}
+
+function toggleTheme() {
+  setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+}
+
+/* ---------- form state ---------- */
+
+function partBody() {
   return {
-    part_id: $("f-part-id").value.trim() || "PART-1",
-    material: $("f-material").value.trim() || "steel",
-    iso_group: $("f-iso").value,
-    operation: $("f-op").value,
-    machine: $("f-machine").value,
-    hardness_hb: Number($("f-hard").value),
-    target_ra_um: Number($("f-ra").value),
-    batch_size: Math.max(1, parseInt($("f-batch").value, 10) || 1),
+    part_id: $("part-id").value.trim() || "PART-1",
+    material: $("material").value.trim() || "steel",
+    iso_group: $("iso").value,
+    operation: $("op").value,
+    machine: $("machine").value,
+    hardness_hb: Number($("hard").value),
+    target_ra_um: Number($("ra").value),
+    batch_size: Number($("batch").value) || 1,
   };
 }
 
-function mid(envelope) {
-  function avg(a) { return (a[0] + a[1]) / 2; }
-  return {
-    v_c_mpm: avg(envelope.v_c_mpm),
-    f_mmpr: avg(envelope.f_mmpr),
-    ap_mm: avg(envelope.ap_mm),
-  };
+function applyPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+  $("part-id").value = p.partId;
+  $("material").value = p.material;
+  $("iso").value = p.iso;
+  $("op").value = p.op;
+  $("machine").value = p.machine;
+  $("hard").value = p.hard;
+  $("ra").value = p.ra;
+  $("batch").value = p.batch;
+  $("hard-val").textContent = p.hard;
+  $("ra-val").textContent = p.ra;
+  document.querySelectorAll("#preset-row .chipbtn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.preset === name);
+  });
+  updatePreview();
+  toast("Loaded " + p.partId + " — press Run pipeline.", "ok");
 }
 
-/* ------------------------------- CAPP ------------------------------- */
+function updatePreview() {
+  const iso = $("iso").value;
+  const hard = Number($("hard").value);
+  const ra = Number($("ra").value);
+  const tight = ra <= 0.8 ? "Tight finish — the fuzzy gate will be strict." : ra <= 1.6 ? "Standard finish." : "Loose finish — more speed allowed.";
+  const hardNote = hard >= 300 ? "Hard material: expect lower speed limits." : hard <= 140 ? "Soft material: high speeds are fine." : "";
+  $("preview-note").innerHTML =
+    "<b>" + esc(ISO_NAMES[iso]) + "</b> · " + esc(tight) +
+    (hardNote ? "<br>" + esc(hardNote) : "");
+  const pop = Number($("pop").value) || 60;
+  const gens = Number($("gens").value) || 40;
+  const budget = pop * gens;
+  const warn = budget < 800;
+  $("budget-hint").innerHTML = budget + " evaluations (" + pop + "×" + gens + "). " +
+    (warn ? "<span class='warn-text'>Low budget — the front may be unstable. Use 60×40 for reliable results.</span>"
+          : "Healthy budget.");
+}
 
-function renderCapp() {
-  const el = $("capp-body");
-  const c = state.capp;
-  let html = "<ol class='steps'>";
-  c.operations.forEach(function (s) { html += "<li>" + esc(s) + "</li>"; });
-  html += "</ol>";
-  if (!c.selected) {
-    html += "<p><span class='badge critical'>NO MATCH</span></p>";
-    if (c.no_match) {
-      html += "<p class='muted'>Inserts surviving each rule in isolation:</p>";
-      html += "<table class='data'><tr><th>rule</th><th class='num'>passing</th><th>requires</th></tr>";
-      c.no_match.per_rule.forEach(function (r) {
-        html += "<tr><td>" + esc(r.rule) + "</td><td class='num'>" + r.passing +
-          "</td><td>" + esc(r.requires) + "</td></tr>";
-      });
-      html += "</table><p class='muted'>Closest inserts:</p>";
-      html += "<table class='data'><tr><th>insert</th><th>ISO</th><th>op</th><th class='num'>score</th></tr>";
-      c.no_match.closest.forEach(function (t) {
-        html += "<tr><td>" + esc(t.insert_code) + "</td><td>" + esc(t.iso_group) +
-          "</td><td>" + esc(t.operation) + "</td><td class='num'>" + t.score + "</td></tr>";
-      });
-      html += "</table>";
+/* ---------- result panels (one per tool family) ---------- */
+
+async function refreshCapp(part) {
+  setPanel("capp-body", "<p class='muted'>Running rule engine…</p>", true);
+  try {
+    const d = await post("/api/capp", part);
+    if (!d.selected) {
+      setPanel("capp-body",
+        "<div class='alert warn'>No catalog insert matches this combination.</div>" +
+        "<p class='hint'>Closest available:</p><p><b>" +
+        d.no_match.closest.map((c) => esc(c.insert_code)).join(", ") + "</b></p>" +
+        "<p class='hint'>This combination is not covered by the 15-insert catalog.</p>");
+      return null;
     }
-    el.innerHTML = html;
-    return;
+    const s = d.selected, e = d.envelope;
+    setPanel("capp-body",
+      "<div class='result-lead'>Insert <b>" + esc(s.insert_code) + "</b></div>" +
+      "<p class='hint'>" + esc(s.description || "") + "</p>" +
+      "<table class='data'><tr><th>Speed V<sub>c</sub></th><th>Feed f</th><th>Depth ap</th></tr>" +
+      "<tr><td>" + e.v_c_mpm[0] + "–" + e.v_c_mpm[1] + " m/min</td><td>" +
+      e.f_mmpr[0] + "–" + e.f_mmpr[1] + " mm/rev</td><td>" +
+      e.ap_mm[0] + "–" + e.ap_mm[1] + " mm</td></tr></table>" +
+      "<p class='hint'>Plan: " + esc((d.operations || []).join(" → ")) + "</p>" +
+      ((d.notes || []).length ? "<p class='hint'>" + d.notes.map(esc).join("<br>") + "</p>" : ""));
+    return { code: s.insert_code, envelope: e };
+  } catch (err) {
+    setPanel("capp-body", "<div class='alert bad'>" + esc(friendlyError(err)) + "</div>");
+    return null;
   }
-  const s = c.selected;
-  html += "<div class='metrics'><div class='metric'><div class='k'>Selected insert</div>" +
-    "<div class='v' style='font-size:1rem'>" + esc(s.insert_code) + "</div></div>" +
-    "<div class='metric'><div class='k'>Candidates</div><div class='v'>" +
-    c.candidates.length + "</div></div>" +
-    "<div class='metric'><div class='k'>Top score</div><div class='v'>" +
-    (c.candidates.length ? c.candidates[0].score : "—") + "</div></div></div>";
-  html += "<dl class='kv'>" +
-    "<dt>Vc envelope</dt><dd>" + c.envelope.v_c_mpm.join(" – ") + " m/min</dd>" +
-    "<dt>feed envelope</dt><dd>" + c.envelope.f_mmpr.join(" – ") + " mm/rev</dd>" +
-    "<dt>ap envelope</dt><dd>" + c.envelope.ap_mm.join(" – ") + " mm</dd>" +
-    "<dt>nose / rake</dt><dd>" + s.nose_radius_mm + " mm / " + s.rake_angle_deg + "°</dd>" +
-    "</dl>";
-  if (c.notes && c.notes.length) {
-    html += "<ul class='notes'>";
-    c.notes.forEach(function (n) { html += "<li>" + esc(n) + "</li>"; });
-    html += "</ul>";
-  }
-  html += "<table class='data'><tr><th>candidate</th><th>ISO</th><th class='num'>score</th></tr>";
-  c.candidates.slice(0, 5).forEach(function (t) {
-    html += "<tr><td>" + esc(t.insert_code) + "</td><td>" + esc(t.iso_group) +
-      "</td><td class='num'>" + t.score + "</td></tr>";
-  });
-  html += "</table>";
-  el.innerHTML = html;
 }
 
-/* ----------------------------- Diagnosis ---------------------------- */
+function renderDiagnosis(d, point) {
+  $("diag-src").textContent = sensorSource === "measured" ? "measured NASA run" : "synthetic";
+  $("diag-src").classList.remove("hidden");
+  $("diag-badge").innerHTML = badgeFor(d.state);
+  const advice = d.state === "safe" ? "Good to run as-is."
+    : d.state === "caution" ? "Runnable but watch the insert — shorten the interval."
+    : "Do not run. Reduce speed or feed, or change the insert.";
+    setPanel("diag-body",
+    "<div class='result-lead'>" + badgeFor(d.state) + "</div>" +
+    "<table class='data'><tr><th>V<sub>B</sub> wear</th><th>R<sub>a</sub> finish</th><th>Confidence</th></tr>" +
+    "<tr><td>" + d.v_b_mm + " mm</td><td>" + d.ra_um + " µm</td><td>" + d.confidence + "</td></tr></table>" +
+    (point ? "<p class='hint'>Diagnosed at V<sub>c</sub> " + Number(point.v_c_mpm).toFixed(0) +
+      " m/min · feed " + Number(point.f_mmpr).toFixed(3) + " mm/rev · depth " +
+      Number(point.ap_mm).toFixed(2) + " mm</p>" : "") +
+    "<p class='advice'>" + esc(advice) + "</p>" +
+    "<p class='hint'>" + esc(d.explanation) + "</p>");
+}
 
-function renderDiagnosis(label) {
-  const el = $("diag-body");
-  const d = state.diagnosis;
-  const tag = $("diag-src");
-  if (label) {
-    const extra = d.sensor_source ? " · " + d.sensor_source : "";
-    tag.textContent = label + extra;
-    tag.classList.remove("hidden");
-  }
-  let html = "<p><span class='badge " + d.state + "'>" + d.state.toUpperCase() + "</span></p>";
-  html += "<div class='metrics'>" +
-    "<div class='metric'><div class='k'>V_B (mm)</div><div class='v'>" + num(d.v_b_mm, 2) + "</div></div>" +
-    "<div class='metric'><div class='k'>R_a (µm)</div><div class='v'>" + num(d.ra_um, 2) + "</div></div>" +
-    "<div class='metric'><div class='k'>Confidence</div><div class='v'>" + num(d.confidence, 2) + "</div></div></div>";
-  html += "<div class='explain'>" + esc(d.explanation) + "</div>";
-  const bars = [["wear", d.memberships.wear], ["roughness", d.memberships.roughness],
-    ["vibration", d.memberships.vibration]];
-  bars.forEach(function (b) {
-    const pct = Math.max(0, Math.min(1, b[1])) * 100;
-    html += "<div class='bar'><span>" + b[0] + "</span><div class='track'><div class='fill' style='width:" +
-      pct.toFixed(0) + "%'></div></div><span>" + num(b[1], 2) + "</span></div>";
-  });
-  html += "<dl class='kv'>" +
-    "<dt>Vibration</dt><dd>" + d.sensor.vibration_rms_g + " g</dd>" +
-    "<dt>Current</dt><dd>" + d.sensor.current_a + " A</dd>" +
-    "<dt>Acoustic</dt><dd>" + d.sensor.acoustic_rms_db + " dB</dd>" +
-    "<dt>Force</dt><dd>" + d.sensor.cutting_force_n + " N</dd>" +
-    "<dt>Point</dt><dd>Vc " + num(d.point.v_c_mpm, 1) + " / f " + num(d.point.f_mmpr, 3) +
-    " / ap " + num(d.point.ap_mm, 2) + "</dd></dl>";
-  if (label === "clicked point") {
-    html += "<p><button class='btn ghost' id='reset-mid'>Back to envelope midpoint</button></p>";
-  }
-  el.innerHTML = html;
-  const rb = $("reset-mid");
-  if (rb) {
-    rb.addEventListener("click", function () {
-      diagnosePoint(state.midpoint, "envelope midpoint")
-        .catch(function (e) { toast(e.message); });
+async function refreshDiag(part, point, insertCode) {
+  setPanel("diag-body", "<p class='muted'>Predicting wear and diagnosing…</p>", true);
+  try {
+    const d = await post("/api/diagnose", {
+      part, point, insert_code: insertCode, sensor_source: sensorSource,
     });
+    renderDiagnosis(d, point);
+    return d;
+  } catch (err) {
+    setPanel("diag-body", "<div class='alert bad'>" + esc(friendlyError(err)) + "</div>");
+    return null;
   }
 }
 
-async function diagnosePoint(point, label) {
-  state.diagPoint = point;
-  state.diagLabel = label;
-  const body = { part: state.part, point: point, insert_code: state.capp.selected.insert_code };
-  if (state.sensorSource === "measured") body.sensor_source = "measured";
-  state.diagnosis = await api("/api/diagnose", body);
-  renderDiagnosis(label);
-}
-
-async function refetchDiagnosis() {
-  if (!state.diagPoint) return;
-  await diagnosePoint(state.diagPoint, state.diagLabel || "envelope midpoint");
-}
-
-function sensorLabel() {
-  return state.sensorSource === "measured" ? "measured NASA run" : "synthetic";
-}
-
-/* ------------------------------ Pareto ------------------------------ */
-
-function renderPareto() {
-  const sols = state.pareto;
-  const ex = state.extremes || {};
-  let chips = "";
-  if (ex.max_mrr) {
-    chips += "<span class='chip'>max MRR <b>" + num(ex.max_mrr.mrr_cm3_per_min, 2) +
-      "</b> (Ra " + num(ex.max_mrr.ra_um, 2) + ")</span>";
-    chips += "<span class='chip'>max life <b>" + num(ex.max_life.tool_life_min, 1) + " min</b></span>";
-    chips += "<span class='chip'>min Ra <b>" + num(ex.min_ra.ra_um, 2) + " µm</b></span>";
-    chips += "<span class='chip'>" + sols.length + " points</span>";
-  }
-  $("pareto-extremes").innerHTML = chips;
-  const plotEl = $("pareto-plot");
-  if (!sols.length) {
-    plotEl.innerHTML = "<p class='muted'>No feasible solutions" +
-      (state.safeOnly ? " under the safe-only gate — uncheck it to see the unconstrained front." : ".") + "</p>";
+function renderPareto(solutions, extremes, tool, noFront) {
+  const plot = $("pareto-plot"), chips = $("pareto-extremes");
+  lastPareto = solutions || [];
+  const ex = extremes || {};
+  chips.innerHTML = ["max_mrr", "max_life", "min_ra"]
+    .filter((k) => ex[k])
+    .map((k) => "<span class='chip' title='" + k + "'><b>" + k.replace("_", " ") + "</b> " +
+      Number(ex[k].v_c_mpm).toFixed(0) + " m/min · " + Number(ex[k].f_mmpr).toFixed(3) + " mm/rev</span>")
+    .join("");
+  if (!lastPareto.length) {
+    const nsf = noFront && noFront.diagnosis;
+    setPanel("pareto-plot",
+      "<div class='alert bad'><b>No safe setting found for this part.</b><br>" +
+      esc((noFront && noFront.note) || "the fuzzy gate rejected every point in the envelope.") +
+      (nsf ? "<br><br>Vetoing diagnosis at the gentlest point " +
+        "(Vc " + nsf.v_b_mm + " V<sub>B</sub>, Ra " + nsf.ra_um + " µm): " +
+        "<b>" + esc(nsf.state.toUpperCase()) + "</b> — " + esc(nsf.explanation) : "") +
+      (noFront && noFront.hint ? "<br><br>" + esc(noFront.hint) : "") + "</div>", false);
     return;
   }
   if (typeof Plotly === "undefined") {
-    plotEl.innerHTML = "<p class='muted'>3D plot needs the Plotly CDN (offline?). " +
-      sols.length + " solutions computed — see Export report for the data.</p>";
+    setPanel("pareto-plot", "<p class='muted'>" + lastPareto.length + " valid settings found (3D plot library offline).</p>", false);
     return;
   }
-  const trace = {
-    x: sols.map(s => s.mrr_cm3_per_min),
-    y: sols.map(s => s.tool_life_min),
-    z: sols.map(s => s.ra_um),
-    text: sols.map(s => "Vc " + num(s.v_c_mpm, 1) + " f " + num(s.f_mmpr, 3) +
-      " ap " + num(s.ap_mm, 2)),
-    customdata: sols.map((s, i) => i),
-    mode: "markers",
-    type: "scatter3d",
-    hovertemplate: "%{text}<br>MRR %{x:.2f} life %{y:.1f} Ra %{z:.2f}<extra></extra>",
-    marker: {
-      size: 4,
-      color: sols.map(s => s.ra_um),
-      colorscale: "Viridis",
-      colorbar: { title: "Ra" },
-    },
-    hovertemplate: "Vc %{customdata} " +
-      "<extra></extra>",
-  };
-  const layout = {
+  setPanel("pareto-plot", "", false);
+  const isLight = document.documentElement.dataset.theme === "light";
+  const axis = isLight ? "#5a6b8c" : "#8ea0c2";
+  const grid = isLight ? "#dbe4f2" : "#1c2a47";
+  const accent = isLight ? "#1f6feb" : "#4f9cf9";
+  Plotly.newPlot(plot, [{
+    type: "scatter3d", mode: "markers",
+    x: lastPareto.map((s) => s.mrr_cm3_per_min),
+    y: lastPareto.map((s) => s.tool_life_min),
+    z: lastPareto.map((s) => s.ra_um),
+    text: lastPareto.map((s) => "Vc " + s.v_c_mpm.toFixed(0) + " · f " + s.f_mmpr.toFixed(2) + " · ap " + s.ap_mm.toFixed(2)),
+    hovertemplate: "MRR %{x:.3f} cm³/min<br>Life %{y:.1f} min<br>Ra %{z:.2f} µm<br><extra>%{text}</extra>",
+    marker: { size: 4, color: accent },
+  }], {
+    margin: { l: 0, r: 0, t: 0, b: 0 },
     paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    margin: { l: 0, r: 0, b: 0, t: 30 },
-    title: { text: "Pareto front — click a point to diagnose it", font: { color: "#e6ecf7", size: 13 } },
     scene: {
-      xaxis: { title: "MRR", color: "#8ea0bf" },
-      yaxis: { title: "Tool life", color: "#8ea0bf" },
-      zaxis: { title: "Ra", color: "#8ea0bf" },
+      xaxis: { title: "Output (MRR cm³/min)", color: axis, gridcolor: grid },
+      yaxis: { title: "Tool life (min)", color: axis, gridcolor: grid },
+      zaxis: { title: "Finish (Ra µm)", color: axis, gridcolor: grid },
+      bgcolor: "rgba(0,0,0,0)",
     },
-  };
-  Plotly.newPlot(plotEl, [trace], layout, { responsive: true, displaylogo: false }).then(function (gd) {
-    gd.on("plotly_click", function (ev) {
-      if (!ev.points || !ev.points.length) return;
-      const s = state.pareto[ev.points[0].customdata];
-      if (!s) return;
-      toast(null);
-      diagnosePoint({ v_c_mpm: s.v_c_mpm, f_mmpr: s.f_mmpr, ap_mm: s.ap_mm }, "clicked point")
-        .catch(function (e) { toast(e.message); });
-      document.getElementById("diag-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
-    });
+  }, { responsive: true });
+  plot.on("plotly_click", (ev) => {
+    const s = lastPareto[ev.points[0].pointIndex];
+    if (s) {
+      refreshDiag(partBody(), { v_c_mpm: s.v_c_mpm, f_mmpr: s.f_mmpr, ap_mm: s.ap_mm }, tool);
+      toast("Diagnosed the point you clicked.", "ok");
+    }
   });
 }
 
-/* ------------------------------- Models ------------------------------ */
-
-function renderModels() {
-  let html = "<table class='data'><tr><th>model</th><th class='num'>V_B</th><th class='num'>R_a</th><th>source</th></tr>";
-  state.compare.forEach(function (r) {
-    const src = r.note || r.error || "";
-    const vb = r.v_b_mm === null || r.v_b_mm === undefined ? "—" : num(r.v_b_mm) +
-      (r.uncertainty ? " ±" + num(r.uncertainty, 3) : "");
-    const ra = r.ra_um === null || r.ra_um === undefined ? "—" : num(r.ra_um);
-    html += "<tr><td>" + esc(r.model) + "</td><td class='num'>" + vb +
-      "</td><td class='num'>" + ra + "</td><td class='muted'>" + esc(src) + "</td></tr>";
-  });
-  html += "</table><p class='hint'>CNNs only ever saw NASA milling windows — at turning " +
-    "envelopes their outputs may sit at the physical clips. The PHM row uses a fixed " +
-    "reference window with ground truth.</p>";
-  $("models-body").innerHTML = html;
-}
-
-async function renderMetrics() {
+async function refreshPareto(part, insertCode) {
+  setPanel("pareto-plot", "<p class='muted'>Searching the Pareto front…</p>", true);
   try {
-    const res = await fetch("/api/model_metrics");
-    const data = await res.json();
-    let html = "<table class='data'><tr><th>model</th><th>input</th><th class='num'>RMSE</th><th class='num'>MAE</th><th class='num'>n</th></tr>";
-    data.rows.forEach(function (r) {
-      html += "<tr><td>" + esc(r.model) + "</td><td>" + esc(r.input || r.error || "") +
-        "</td><td class='num'>" + num(r.rmse, 4) + "</td><td class='num'>" + num(r.mae, 4) +
-        "</td><td class='num'>" + (r.n === undefined ? "—" : r.n) + "</td></tr>";
+    const d = await post("/api/pareto", {
+      part,
+      insert_code: insertCode,
+      pop_size: Number($("pop").value) || 60,
+      n_generations: Number($("gens").value) || 40,
+      seed: Number($("seed").value) || 42,
+      safe_only: $("safe").checked,
     });
-    $("metrics-body").innerHTML = html + "</table>";
-  } catch (e) {
-    $("metrics-body").innerHTML = "<p class='muted'>metrics unavailable</p>";
+    renderPareto(d.solutions, d.extremes, d.tool, d.no_safe_front);
+    if (d.solutions && d.solutions.length) {
+      const n = d.solutions.length;
+      const tag = n === 1 ? "1 safe setting found" : n + " safe settings found";
+      toast(tag + " — click any dot to diagnose it.", "ok");
+    }
+    return d;
+  } catch (err) {
+    setPanel("pareto-plot", "<div class='alert bad'>" + esc(friendlyError(err)) + "</div>");
+    return null;
   }
 }
 
-/* -------------------------------- Flow ------------------------------- */
+async function refreshModels(part, point, insertCode) {
+  setPanel("models-body", "<p class='muted'>Asking all five models…</p>", true);
+  try {
+    const d = await post("/api/compare", {
+      part, point, insert_code: insertCode, sensor_source: sensorSource,
+    });
+    const prod = d.rows.filter((r) => r.tier === "production" && r.v_b_mm != null);
+    const ref = d.rows.filter((r) => r.tier === "reference");
+    const spread = d.production_spread_mm;
+    const rowHtml = (r) => "<tr><td>" + esc(r.model) + "</td><td>" + r.v_b_mm +
+      "</td><td>" + r.ra_um + "</td><td>" + esc(r.note || "") + "</td></tr>";
+    const rowHtmlRef = (r) => "<tr><td>" + esc(r.model) + "</td><td>" + r.v_b_mm +
+      "</td><td>" + r.ra_um + "</td><td>" + esc(r.caveat || r.note || "") + "</td></tr>";
+    setPanel("models-body",
+      "<h4 class='sub-h'>Trusted models</h4>" +
+      "<table class='data'><tr><th>Model</th><th>V<sub>B</sub></th><th>R<sub>a</sub></th><th>Ground truth</th></tr>" +
+      prod.map(rowHtml).join("") + "</table>" +
+      (spread != null
+        ? "<p class='hint'>These " + prod.length + " models span " + spread.toFixed(3) +
+          " mm on V<sub>B</sub> — " +
+          (spread > 0.1 ? "<span class='warn-text'>read as indicative, not precise.</span>"
+                        : "<span class='state-safe'>broadly agree.</span>") + "</p>"
+        : "") +
+      (ref.length
+        ? "<h4 class='sub-h mt'>Reference models <span class='tag'>overfit, not used for decisions</span></h4>" +
+          "<table class='data'><tr><th>Model</th><th>V<sub>B</sub></th><th>R<sub>a</sub></th><th>Why</th></tr>" +
+          ref.map(rowHtmlRef).join("") + "</table>" +
+          "<p class='hint'>Kept for comparison. CNN1D and CNN-LSTM train on 145 rows and memorise them, " +
+          "so their predictions are not averaged into the agreement figure above.</p>"
+        : ""));
+  } catch (err) {
+    setPanel("models-body", "<div class='alert bad'>" + esc(friendlyError(err)) + "</div>");
+  }
+  setPanel("metrics-body", "<p class='muted'>Loading held-out scores…</p>", true);
+  try {
+    const m = await fetch("/api/model_metrics").then((r) => r.json());
+    const best = Math.min(...m.rows.filter((r) => r.rmse != null).map((r) => r.rmse));
+    setPanel("metrics-body",
+      "<table class='data'><tr><th>Model</th><th>RMSE</th><th>Tested on</th></tr>" +
+      m.rows.map((r) => "<tr><td>" + esc(r.model) + (r.rmse === best ? " ★" : "") + "</td><td>" +
+        (r.rmse != null ? r.rmse : "n/a") + "</td><td>" + esc(String(r.n)) + " samples</td></tr>").join("") +
+      "</table><p class='hint'>★ = best. Lower RMSE is more accurate.</p>");
+  } catch (err) {
+    setPanel("metrics-body", "<div class='alert bad'>" + esc(friendlyError(err)) + "</div>");
+  }
+}
+
+/* ---------- deterministic run: CAPP -> diagnose -> pareto -> compare ---------- */
 
 async function runPipeline() {
-  toast(null);
+  const btn = $("run-btn");
+  const part = partBody();
+  btn.disabled = true;
+  btn.textContent = "Running…";
+  $("summary-tag").textContent = "";
+  resetStepper();
+  stepState(1, "active");
+  setPanel("summary-body", "<p class='muted'>Step 1 of 4 — selecting an insert…</p>");
+  scrollToResults();
+
   try {
-    state.part = readPart();
-    state.capp = await api("/api/capp", state.part);
-    renderCapp();
-    if (!state.capp.selected) {
-      $("diag-body").innerHTML = "<p class='muted'>No tool — nothing to diagnose.</p>";
-      $("pareto-plot").innerHTML = "<p class='muted'>No tool — nothing to optimise.</p>";
-      $("pareto-extremes").innerHTML = "";
-      $("models-body").innerHTML = "<p class='muted'>No tool — nothing to compare.</p>";
-      $("export-btn").disabled = true;
+    const sel = await refreshCapp(part);
+    if (!sel) {
+      stepState(1, "fail");
+      setPanel("summary-body", "<div class='alert warn'>Stopped: no insert matches this part. Nothing else to compute.</div>");
       return;
     }
-    const code = state.capp.selected.insert_code;
-    state.midpoint = mid(state.capp.envelope);
-    const cfg = {
-      pop_size: Math.max(8, parseInt($("f-pop").value, 10) || 60),
-      n_generations: Math.max(3, parseInt($("f-gens").value, 10) || 40),
-      seed: parseInt($("f-seed").value, 10) || 0,
-      safe_only: $("f-safe").checked,
+    stepState(1, "done");
+    stepState(2, "active");
+    setPanel("summary-body", "<p class='muted'>Step 2 of 4 — predicting wear at the envelope midpoint…</p>");
+    const mid = {
+      v_c_mpm: (sel.envelope.v_c_mpm[0] + sel.envelope.v_c_mpm[1]) / 2,
+      f_mmpr: (sel.envelope.f_mmpr[0] + sel.envelope.f_mmpr[1]) / 2,
+      ap_mm: Math.min(1.5, sel.envelope.ap_mm[1]),
     };
-    const cmpBody = { part: state.part, point: state.midpoint, insert_code: code };
-    if (state.sensorSource === "measured") cmpBody.sensor_source = "measured";
-    const [par, dia, cmp] = await Promise.all([
-      api("/api/pareto", { part: state.part, insert_code: code, ...cfg }),
-      api("/api/diagnose", { part: state.part, point: state.midpoint, insert_code: code,
-                             sensor_source: state.sensorSource }),
-      api("/api/compare", cmpBody),
-    ]);
-    state.pareto = par.solutions;
-    state.extremes = par.extremes || {};
-    state.safeOnly = !!cfg.safe_only;
-    state.diagnosis = dia;
-    state.diagPoint = state.midpoint;
-    state.compare = cmp.rows;
-    renderPareto();
-    renderDiagnosis("envelope midpoint");
-    renderModels();
-    renderMetrics();
+    const diag = await refreshDiag(part, mid, sel.code);
+    stepState(2, diag ? "done" : "fail");
+    stepState(3, "active");
+    setPanel("summary-body", "<p class='muted'>Step 3 of 4 — searching for the best trade-offs…</p>");
+    const pareto = await refreshPareto(part, sel.code);
+    stepState(3, pareto ? "done" : "fail");
+    stepState(4, "active");
+    setPanel("summary-body", "<p class='muted'>Step 4 of 4 — cross-checking with all models…</p>");
+    await refreshModels(part, mid, sel.code);
+    stepState(4, "done");
+
+    const n = pareto && pareto.solutions ? pareto.solutions.length : 0;
+    const state = diag ? diag.state : "unknown";
+    $("summary-tag").innerHTML = badgeFor(state);
+    setPanel("summary-body",
+      "<div class='summary-grid'>" +
+      "<div><span>Insert</span><b>" + esc(sel.code) + "</b></div>" +
+      "<div><span>Diagnosis</span><b class='" + stateClass(state) + "'>" + esc(state.toUpperCase()) + "</b></div>" +
+      "<div><span>V<sub>B</sub> at midpoint</span><b>" + (diag ? diag.v_b_mm + " mm" : "—") + "</b></div>" +
+      "<div><span>R<sub>a</sub> at midpoint</span><b>" + (diag ? diag.ra_um + " µm" : "—") + "</b></div>" +
+      "<div><span>Safe settings found</span><b>" + n + "</b></div>" +
+      "<div><span>Safe-only gate</span><b>" + ($("safe").checked ? "on" : "off") + "</b></div>" +
+      "</div>" +
+      (state === "critical"
+        ? "<div class='alert bad'><b>The midpoint of this envelope is critical.</b><br>" +
+          (n > 0
+            ? "That verdict is for one specific setting — the exact middle of the envelope. " +
+              "The <b>" + n + " settings</b> in the Pareto front below all pass the safety gate."
+            : "No setting in this envelope passes the gate.") +
+          " Uncheck safe-only to see the full trade-off space, or pick a different insert.</div>"
+        : "<p class='hint'>Scroll down for the details. Click any Pareto dot to diagnose that setting.</p>") +
+      "<button class='btn ghost sm' onclick='exportReport()'>Download JSON report</button>");
+
+    lastReport = {
+      part, insert: sel.code, envelope: sel.envelope, midpoint: mid,
+      diagnosis: diag, pareto_count: n, at: new Date().toISOString(),
+    };
     $("export-btn").disabled = false;
-  } catch (e) {
-    toast(e.message);
-  }
-}
-
-function agentStepRow(t, i) {
-  const obs = t.observation || {};
-  const summary = obs.result ? String(obs.result).slice(0, 220)
-    : (obs.error ? ("error: " + JSON.stringify(obs.error).slice(0, 220)) : "—");
-  return "<tr><td class='num'>" + (i + 1) + "</td><td>" + esc(t.tool || "?") +
-    "</td><td class='muted'>" + esc(summary) + "</td></tr>";
-}
-
-function renderAgentDone(el, data) {
-  let html = "<div class='explain'>" + esc(data.answer) + "</div>";
-  html += "<p class='hint'>" + data.steps + " tool step(s)" +
-    (data.truncated ? " · stopped early" : "") + "</p>";
-  html += "<details open><summary class='hint'>Tool transcript</summary>" +
-    "<table class='data'><tr><th>#</th><th>tool</th><th>result</th></tr>";
-  (data.transcript || []).forEach(function (t, i) {
-    if (!t.tool) return;
-    html += agentStepRow(t, i);
-  });
-  el.innerHTML = html + "</table></details>";
-}
-
-function agentRequestBody() {
-  return {
-    part: readPart(),
-    goal: $("f-goal").value,
-    pop_size: Math.max(8, parseInt($("f-pop").value, 10) || 60),
-    n_generations: Math.max(3, parseInt($("f-gens").value, 10) || 40),
-    seed: parseInt($("f-seed").value, 10) || 0,
-    safe_only: $("f-safe").checked,
-    sensor_source: state.sensorSource,
-    notes: $("f-notes").value.trim(),
-  };
-}
-
-async function runAgentOnce() {
-  const res = await fetch("/api/agent_run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(agentRequestBody()),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
-  return data;
-}
-
-async function runAgent() {
-  const btn = $("agent-btn");
-  btn.disabled = true;
-  const el = $("agent-body");
-  el.innerHTML = "<table class='data' id='agent-live'>" +
-    "<tr><th>#</th><th>tool</th><th>result</th></tr></table>" +
-    "<p class='hint' id='agent-status'>Agent working — calling tools…</p>";
-  const live = $("agent-live");
-  let stepCount = 0;
-  function pushStep(t) {
-    stepCount += 1;
-    live.insertAdjacentHTML("beforeend", agentStepRow(t, stepCount - 1));
-    const st = $("agent-status");
-    if (st) st.textContent = "Agent working — step " + stepCount + ": " + (t.tool || "?") + "…";
-  }
-  try {
-    const res = await fetch("/api/agent_run_stream", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(agentRequestBody()),
-    });
-    if (!res.ok || !res.body) throw new Error("stream unavailable");
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    let doneData = null;
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      buf += decoder.decode(chunk.value, { stream: true });
-      let cut;
-      while ((cut = buf.indexOf("\n\n")) >= 0) {
-        const block = buf.slice(0, cut);
-        buf = buf.slice(cut + 2);
-        let evName = "message", payload = "{}";
-        block.split("\n").forEach(function (line) {
-          if (line.indexOf("event:") === 0) evName = line.slice(6).trim();
-          else if (line.indexOf("data:") === 0) payload = line.slice(5).trim();
-        });
-        let data = {};
-        try { data = JSON.parse(payload); } catch (e) { data = {}; }
-        if (evName === "step" && data.tool) pushStep(data);
-        else if (evName === "done" && data.answer !== undefined) doneData = data;
-        else if (evName === "error") throw new Error(data.message || "stream error");
-      }
-    }
-    if (!doneData) throw new Error("stream ended without result");
-    renderAgentDone(el, doneData);
-  } catch (e) {
-    try {
-      renderAgentDone(el, await runAgentOnce());
-    } catch (e2) {
-      el.innerHTML = "<p class='muted'>Error: " + esc(e2.message || e.message) + "</p>";
-    }
+  } catch (err) {
+    setPanel("summary-body", "<div class='alert bad'>Pipeline failed: " + esc(friendlyError(err)) + "</div>");
+    toast(friendlyError(err), "bad");
   } finally {
     btn.disabled = false;
+    btn.textContent = "▶ Run pipeline";
   }
-}
-
-const PRESETS = {
-  shaft: { "part_id": "SHAFT-A12", "material": "AISI 4140 alloy steel",
-    "iso_group": "P", "operation": "turning", "machine": "medium",
-    "hardness_hb": 240, "target_ra_um": 1.2, "batch_size": 120 },
-  bracket: { "part_id": "BRACKET-N7", "material": "AlSi10Mg aluminium",
-    "iso_group": "N", "operation": "milling", "machine": "light",
-    "hardness_hb": 100, "target_ra_um": 0.8, "batch_size": 200 },
-  turbine: { "part_id": "TURBINE-S3", "material": "Inconel 718 superalloy",
-    "iso_group": "S", "operation": "turning", "machine": "medium",
-    "hardness_hb": 380, "target_ra_um": 1.6, "batch_size": 20 },
-};
-
-function partContextLine() {
-  const p = readPart();
-  return "Current part on screen: " + p.part_id + ", " + p.material +
-    " (ISO " + p.iso_group + ", " + p.operation + ", " + p.machine +
-    " machine, " + p.hardness_hb + " HB, target Ra " + p.target_ra_um +
-    " um, batch " + p.batch_size + "). ";
-}
-
-function fillForm(p) {
-  $("f-part-id").value = p.part_id;
-  $("f-material").value = p.material;
-  $("f-iso").value = p.iso_group;
-  $("f-op").value = p.operation;
-  $("f-machine").value = p.machine;
-  $("f-hard").value = p.hardness_hb;
-  $("v-hard").textContent = p.hardness_hb;
-  $("f-ra").value = p.target_ra_um;
-  $("v-ra").textContent = p.target_ra_um;
-  $("f-batch").value = p.batch_size;
 }
 
 function exportReport() {
-  const blob = new Blob([JSON.stringify({
-    part: state.part,
-    capp: state.capp,
-    pareto_solutions: state.pareto,
-    pareto_extremes: state.extremes,
-    diagnosis: state.diagnosis,
-    model_comparison: state.compare,
-  }, null, 2)], { type: "application/json" });
+  if (!lastReport) return;
+  const blob = new Blob([JSON.stringify(lastReport, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "hybrid_ai_report_" + (state.part ? state.part.part_id : "report") + ".json";
+  a.download = "hybrid-ai-report.json";
   a.click();
-  setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+  URL.revokeObjectURL(a.href);
+  toast("Report downloaded.", "ok");
 }
 
-async function refreshStatus() {
-  try {
-    const res = await fetch("/api/status");
-    const s = await res.json();
-    const total = Object.keys(s.models).length;
-    const loaded = Object.values(s.models).filter(Boolean).length;
-    const pill = $("status-pill");
-    pill.textContent = s.catalog_size + " tools · " + loaded + "/" + total + " models live";
-    pill.classList.add("ok");
-  } catch (e) {
-    const pill = $("status-pill");
-    pill.textContent = "server unreachable";
-    pill.classList.add("err");
+/* ---------- boot ---------- */
+
+function bind(id, event, fn) {
+  const el = $(id);
+  if (!el) {
+    toast("Page mismatch: #" + id + " missing — hard-refresh (Ctrl+F5).", "bad");
+    return;
   }
+  el.addEventListener(event, fn);
 }
 
-async function askQuestion() {
-  const input = $("f-ask");
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = "";
-  const el = $("agent-body");
-  el.innerHTML = "<p class='muted'>Agent thinking…</p>";
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: partContextLine() + text }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      el.innerHTML = "<p class='muted'>Error: " + esc(data.detail || ("HTTP " + res.status)) + "</p>";
-      return;
-    }
-    el.innerHTML = "<div class='explain'>" + esc(data.answer) + "</div>" +
-      "<p class='hint'>" + data.steps + " tool step(s)" +
-      (data.truncated ? " · stopped early" : "") + " · design below is current for your part</p>";
-  } catch (e) {
-    el.innerHTML = "<p class='muted'>Error: server unreachable (" + esc(e.message) + ")</p>";
-  }
-}
+document.addEventListener("DOMContentLoaded", () => {
+  setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+  bind("theme-btn", "click", toggleTheme);
+  bind("hard", "input", (e) => { $("hard-val").textContent = e.target.value; updatePreview(); });
+  bind("ra", "input", (e) => { $("ra-val").textContent = e.target.value; updatePreview(); });
+  bind("iso", "change", updatePreview);
+  bind("pop", "input", updatePreview);
+  bind("gens", "input", updatePreview);
+  bind("preset-row", "click", (e) => {
+    const b = e.target.closest("[data-preset]");
+    if (b) applyPreset(b.dataset.preset);
+  });
+  bind("run-btn", "click", runPipeline);
+  bind("src-synth", "click", () => setSensor("synthetic"));
+  bind("src-meas", "click", () => setSensor("measured"));
+  bind("export-btn", "click", exportReport);
 
-document.addEventListener("DOMContentLoaded", function () {
-  $("f-hard").addEventListener("input", function (e) { $("v-hard").textContent = e.target.value; });
-  $("f-ra").addEventListener("input", function (e) { $("v-ra").textContent = e.target.value; });
-  $("part-form").addEventListener("submit", function (e) {
-    e.preventDefault();
-    runAgent().then(function () { return runPipeline(); })
-      .catch(function (e) { toast(e.message); });
-  });
-  $("export-btn").addEventListener("click", exportReport);
-  $("agent-btn").addEventListener("click", function () {
-    runAgent().then(function () { return runPipeline(); })
-      .catch(function (e) { toast(e.message); });
-  });
-  $("ask-btn").addEventListener("click", askQuestion);
-  $("f-ask").addEventListener("keydown", function (e) {
-    if (e.key === "Enter") { e.preventDefault(); askQuestion(); }
-  });
-  $("src-synth").addEventListener("click", function () { setSensorSource("synthetic"); });
-  $("src-meas").addEventListener("click", function () { setSensorSource("measured"); });
-  Array.prototype.forEach.call(
-    document.querySelectorAll("#preset-row .chipbtn"),
-    function (btn) {
-      btn.addEventListener("click", function () {
-        const p = PRESETS[btn.getAttribute("data-preset")];
-        if (p) fillForm(p);
+  const sections = Array.from(document.querySelectorAll("section.band"));
+  const navLinks = Array.from(document.querySelectorAll(".section-nav a[href^='#']"));
+  if ("IntersectionObserver" in window && sections.length) {
+    const spy = new IntersectionObserver((entries) => {
+      entries.forEach((en) => {
+        if (!en.isIntersecting) return;
+        navLinks.forEach((a) =>
+          a.classList.toggle("active", a.getAttribute("href") === "#" + en.target.id));
       });
-    });
-  refreshStatus();
-  runPipeline();
+    }, { rootMargin: "-40% 0px -55% 0px" });
+    sections.forEach((s) => spy.observe(s));
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.tagName !== "SELECT") {
+      if (e.target.tagName === "INPUT" && e.target.type === "number") return;
+      runPipeline();
+    }
+  });
+  updatePreview();
+  fetch("/api/status").then((r) => r.json()).then((s) => {
+    const pill = $("status-pill");
+    const checks = Object.values(s.checkpoints || {});
+    const have = checks.filter(Boolean).length, need = checks.length || 5;
+    pill.textContent = "online · " + have + "/" + need + " checkpoints";
+    pill.classList.add(have === need ? "ok" : "down");
+    pill.title = have === need
+      ? "All model checkpoints present — catalog " + s.catalog_size + " inserts"
+      : "Some checkpoints missing on the server";
+  }).catch(() => {
+    const pill = $("status-pill");
+    pill.textContent = "offline";
+    pill.classList.add("down");
+  });
 });
 
-function setSensorSource(src) {
-  if (state.sensorSource === src) return;
-  state.sensorSource = src;
+function setSensor(src) {
+  sensorSource = src;
   $("src-synth").classList.toggle("active", src === "synthetic");
   $("src-meas").classList.toggle("active", src === "measured");
-  if (!state.capp || !state.capp.selected) return;
-  refetchDiagnosis().catch(function (e) { toast(e.message); });
-  api("/api/compare", { part: state.part, point: state.midpoint,
-                        insert_code: state.capp.selected.insert_code,
-                        sensor_source: src })
-    .then(function (cmp) { state.compare = cmp.rows; renderModels(); })
-    .catch(function (e) { toast(e.message); });
+  refreshDiag(partBody(), { v_c_mpm: 250, f_mmpr: 0.3, ap_mm: 1.5 }, null);
 }

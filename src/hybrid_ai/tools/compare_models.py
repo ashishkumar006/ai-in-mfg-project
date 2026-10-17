@@ -31,14 +31,22 @@ TOOL_SPEC: dict = {
 def run(part: PartSpec, point: OperatingPoint,
         insert_code: str | None = None,
         sensor_source: str = "synthetic") -> dict:
-    """Compare all models at one operating point."""
+    """Compare all models at one operating point.
+
+    Rows are tiered. ``production`` models are the ones the system trusts:
+    they are trained on enough data to generalise to unseen cutters and
+    tools. ``reference`` models are kept for comparison and teaching, but
+    they overfit their small training sets and their predictions should
+    not be averaged into a reliability figure.
+    """
     tool = _models.resolve_tool(part, insert_code)
     sensor, _ = _models.resolve_sensor(point, sensor_source)
     rows: list[dict] = []
     mlp = _models.get_mlp()
     pred = predict_for_point(mlp, tool, point,
                              hardness_hb=part.hardness_hb, sensor=sensor)
-    rows.append({"model": "MLP (blended)", "v_b_mm": round(pred.v_b_mm, 3),
+    rows.append({"model": "MLP (blended)", "tier": "production",
+                 "v_b_mm": round(pred.v_b_mm, 3),
                  "ra_um": round(pred.ra_um, 3),
                  "confidence": round(pred.model_confidence, 2),
                  "uncertainty": round(pred.uncertainty, 4),
@@ -50,14 +58,16 @@ def run(part: PartSpec, point: OperatingPoint,
             model = getter()
             mean, std = model.predict_with_uncertainty(raw, n_passes=20)
             out = mean[0]
-            rows.append({"model": name,
+            rows.append({"model": name, "tier": "reference",
                          "v_b_mm": round(float(np.clip(out[0], 0.02, 1.5)), 3),
                          "ra_um": round(float(np.clip(out[1], 0.2, 6.0)), 3),
                          "confidence": None,
                          "uncertainty": round(float(std[0][0]), 4),
-                         "source": getattr(model, "_source", "?")})
+                         "source": getattr(model, "_source", "?"),
+                         "caveat": "overfits its 145-row training set"})
         except Exception as exc:
-            rows.append({"model": name, "v_b_mm": None, "ra_um": None,
+            rows.append({"model": name, "tier": "reference",
+                         "v_b_mm": None, "ra_um": None,
                          "confidence": None, "error": str(exc)})
     big = _models.get_big()
     if big is not None:
@@ -65,26 +75,32 @@ def run(part: PartSpec, point: OperatingPoint,
             ref, true_vb, _ = _models.phm_reference()
             mean, std = big.predict_with_uncertainty(ref[np.newaxis], n_passes=20)
             out = mean[0]
-            rows.append({"model": "CNN-BiLSTM (PHM 6.5k)",
+            rows.append({"model": "CNN-BiLSTM (PHM 6.5k)", "tier": "production",
                          "v_b_mm": round(float(out[0]), 3),
                          "ra_um": round(float(out[1]), 3),
                          "confidence": None,
                          "uncertainty": round(float(std[0][0]), 4),
                          "note": f"reference PHM c6 window, true VB={true_vb:.2f}"})
         except Exception as exc:
-            rows.append({"model": "CNN-BiLSTM (PHM 6.5k)", "v_b_mm": None,
+            rows.append({"model": "CNN-BiLSTM (PHM 6.5k)", "tier": "production",
+                         "v_b_mm": None,
                          "ra_um": None, "confidence": None, "error": str(exc)})
     turning = _models.get_turning()
     if turning is not None:
         try:
             trow, t_vb, _ = _models.vicomtech_reference()
             out = turning.predict(trow[np.newaxis])[0]
-            rows.append({"model": "HGBR (Vicomtech turning)",
+            rows.append({"model": "HGBR (Vicomtech turning)", "tier": "production",
                          "v_b_mm": round(float(out[0]), 3),
                          "ra_um": round(float(out[1]), 3),
                          "confidence": None,
                          "note": f"reference turning segment, true VB={t_vb:.2f}"})
         except Exception as exc:
-            rows.append({"model": "HGBR (Vicomtech turning)", "v_b_mm": None,
+            rows.append({"model": "HGBR (Vicomtech turning)", "tier": "production",
+                         "v_b_mm": None,
                          "ra_um": None, "confidence": None, "error": str(exc)})
-    return {"point": point.to_dict(), "tool": tool.insert_code, "rows": rows}
+    prod = [r["v_b_mm"] for r in rows
+            if r.get("tier") == "production" and r.get("v_b_mm") is not None]
+    spread = (max(prod) - min(prod)) if len(prod) >= 2 else None
+    return {"point": point.to_dict(), "tool": tool.insert_code, "rows": rows,
+            "production_spread_mm": None if spread is None else round(spread, 3)}
