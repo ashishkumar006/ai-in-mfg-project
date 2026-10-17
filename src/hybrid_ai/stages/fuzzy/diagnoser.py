@@ -3,6 +3,12 @@
 Maps (V_B, R_a, vibration RMS) to a crisp state in
 {``safe``, ``caution``, ``critical``} using Mamdani-style triangular /
 trapezoidal membership functions and max-rule inference.
+
+The continuous companion "Tool Health Index" — a genuine Mamdani
+``skfuzzy.control`` system over full universes — lives in
+``stages/fuzzy/health.py``; its band boundaries are shared with this
+classifier. The pointwise primitives here stay skfuzzy-free because
+the NSGA-II gate calls them hundreds of times per front.
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from hybrid_ai.core.schemas import FuzzyDiagnosis, FuzzyState, SensorReading, WearPrediction
+from hybrid_ai.stages.fuzzy.health import tool_health_index
 
 
 @dataclass(frozen=True)
@@ -45,6 +52,11 @@ class FuzzyThresholds:
 
 
 def _tri(x: np.ndarray, lo: float, mid: float, hi: float) -> np.ndarray:
+    # Hand-rolled triangle, not skfuzzy's: the classifier is called per
+    # operating point inside the NSGA-II gate (hundreds of times per
+    # front), where skfuzzy's array machinery costs measurable time.
+    # The genuine skfuzzy usage (membership construction over full
+    # universes + the Mamdani control system) lives in health.py.
     if hi <= lo:
         return np.zeros_like(x, dtype=float)
     left = (x - lo) / max(mid - lo, 1e-9)
@@ -132,12 +144,17 @@ def diagnose(
     sensor: SensorReading | None = None,
     thresholds: FuzzyThresholds | None = None,
     target_ra_um: float | None = None,
+    compute_health: bool = True,
 ) -> FuzzyDiagnosis:
     """Return the fuzzy state for a wear prediction + (optional) sensor reading.
 
     An explicit ``thresholds`` object always wins; otherwise, when
     ``target_ra_um`` is given, the roughness bands are derived from
     the part tolerance via :meth:`FuzzyThresholds.for_target`.
+
+    ``compute_health`` gates the (slower) Mamdani Tool Health Index —
+    the NSGA-II gate calls this thousands of times per front and only
+    needs the state, so internal hot paths pass ``False``.
     """
     if thresholds is None:
         thresholds = (FuzzyThresholds.for_target(target_ra_um)
@@ -147,6 +164,13 @@ def diagnose(
     state, wm, rm, vm = _classify_deterministic(
         wear.v_b_mm, wear.ra_um, vibration, thresholds
     )
+    ghi = None
+    if compute_health:
+        try:
+            ghi = tool_health_index(thresholds).index(wear.v_b_mm, wear.ra_um,
+                                                      vibration)
+        except Exception:  # pragma: no cover - the gauge must never block a diagnosis
+            ghi = None
     explanation = _explain(state, wear, sensor, wm, rm, vm, thresholds)
     return FuzzyDiagnosis(
         state=state,
@@ -154,6 +178,7 @@ def diagnose(
         roughness_membership=rm,
         vibration_membership=vm,
         explanation=explanation,
+        tool_health_index=ghi,
     )
 
 

@@ -1,0 +1,55 @@
+insert_code,iso_group,operation,nose_radius_mm,rake_angle_deg,v_c_min_mpm,v_c_max_mpm,f_min_mmpr,f_max_mmpr,ap_max_mm,description
+# Bundled ISO 13399-style tooling catalog (illustrative).
+# Rows below follow publicly documented insert families and vendor-style
+# parameter envelopes; this is NOT a proprietary Sandvik Coromant export.
+# Substitute any conforming ISO 13399 CSV via parse_iso13399_catalog(path).
+CNMG120408-PM,P,turning,0.8,6.0,180,320,0.15,0.45,4.0,Coated carbide medium roughing of low-carbon steel
+CNMG120412-PR,P,turning,1.2,6.0,160,280,0.20,0.55,5.0,Coated carbide roughing of alloy steel
+WNMG080408-MF,M,turning,0.8,0.0,120,220,0.10,0.30,3.5,Stainless-steel finishing insert
+APMT1604PDER-M2,M,milling,0.8,10.0,100,200,0.05,0.20,2.5,Indexable milling insert for stainless steel
+CNMG120408-KC,K,turning,0.8,-6.0,120,180,0.15,0.50,4.5,Coated carbide roughing of cast iron
+APMT1604PDER-N1,N,milling,0.8,12.0,400,900,0.05,0.35,3.0,Polished uncoated insert for aluminium milling
+CNMG120408-S,S,turning,0.8,0.0,40,90,0.10,0.25,2.5,Coated carbide superalloy roughing negative geometry
+DCMT11T308-PF,P,facing,0.8,6.0,170,300,0.10,0.35,4.0,Coated carbide facing of steel
+DCMT11T308-MF,M,facing,0.8,0.0,110,200,0.08,0.28,3.0,Stainless-steel facing insert
+VBMT160408-KF,K,facing,0.8,-6.0,120,180,0.10,0.40,4.0,Cast-iron facing insert negative rake
+SDMX090308-P,P,drilling,0.8,6.0,120,220,0.08,0.25,5.0,Spade insert for steel drilling
+SDMX090308-M,M,drilling,0.8,4.0,70,150,0.06,0.20,4.0,Spade insert for stainless-steel drilling
+CCMT120408-PB,P,boring,0.8,6.0,150,280,0.10,0.40,4.0,Coated carbide steel boring insert
+CCMT09T308-KB,K,boring,0.8,-6.0,110,180,0.10,0.35,4.0,Coated carbide cast-iron boring insert
+APMT1604PDER-P,P,milling,0.8,8.0,180,300,0.05,0.25,4.0,Coated carbide steel milling insert
+CNMG120408-MF2,P,facing,0.8,6.0,150,290,0.10,0.32,4.2,Second facing option medium depths
+R245-12T3M-PM,P,milling,0.8,8.0,190,330,0.06,0.28,4.5,High-feed face milling option for steel
+SDMX090308-P2,P,drilling,0.8,6.0,110,200,0.10,0.30,5.5,Heavy-duty spade insert for deep steel holes
+CCMT09T304-PB,P,boring,0.4,6.0,140,260,0.08,0.30,4.2,Fine-boring option for steel
+CNMG120404-M3,M,turning,0.4,0.0,100,200,0.08,0.26,4.0,Finer stainless turning option sharp edge
+APMT1137PDER-M4,M,milling,0.8,10.0,110,210,0.05,0.22,2.8,Second stainless milling option
+SDMX090308-M2,M,drilling,0.8,4.0,60,130,0.08,0.24,4.5,Second stainless drilling option tougher core
+CCMT09T308-MB,M,boring,0.4,4.0,100,190,0.08,0.28,3.5,Stainless boring insert positive geometry
+CNMG120404-MB,M,boring,0.4,0.0,90,180,0.06,0.22,4.5,Negative stainless boring option
+SNMG120408-KR,K,turning,0.8,-6.0,130,230,0.18,0.60,5.0,Higher-speed cast-iron roughing option
+APMT1604PDER-K1,K,milling,0.8,-6.0,130,260,0.06,0.30,3.6,Indexable milling insert for cast iron
+SEMT13T3AGFN-K2,K,milling,0.8,-6.0,140,280,0.10,0.38,4.4,Chip-breaker face-mill option for grey iron
+SDMX090308-KD,K,drilling,0.8,-6.0,90,180,0.10,0.35,4.5,Spade insert for cast-iron drilling
+SDMX090308-KR,K,drilling,0.8,-6.0,100,200,0.12,0.40,5.0,Second spade option for deeper cast-iron holes
+CCGX120408-ALU,N,turning,0.8,14.0,400,800,0.08,0.40,2.6,Polished uncoated aluminium turning insert
+DCGX11T304-ALU,N,turning,0.4,12.0,350,700,0.05,0.28,2.4,High-rake finishing option for aluminium
+TCGX16T304-ALF,N,facing,0.4,14.0,380,700,0.05,0.25,2.5,Polished uncoated aluminium facing insert
+CCGX120408-ALF,N,facing,0.8,14.0,400,800,0.06,0.30,2.6,Second aluminium facing option
+SDMX090308-NA,N,drilling,0.8,10.0,420,780,0.05,0.25,3.0,Spade insert for aluminium drilling
+SDMX090308-NR,N,drilling,0.8,10.0,450,820,0.06,0.28,3.2,Second aluminium drilling extra clearance
+DCGX11T304-WL,N,boring,0.4,12.0,300,620,0.04,0.22,2.4,Aluminium boring insert high positive rake
+CCGX120408-WL,N,boring,0.8,14.0,320,640,0.05,0.26,2.6,Second aluminium boring option
+CNGA120408-S0202,S,facing,0.8,-6.0,35,95,0.05,0.18,2.8,Whisker-reinforced ceramic facing superalloys
+SDMT090308-SF,S,facing,0.8,-6.0,45,110,0.06,0.20,2.5,Coated carbide facing option for nickel alloys
+SEMT13T3AGFN-S4,S,milling,0.8,-6.0,40,100,0.05,0.22,2.8,Ceramic face-mill insert for superalloy pockets
+SEKT13T3AGSM-S,S,milling,0.8,-5.0,40,110,0.06,0.24,3.0,Second ceramic milling option Sitenearth
+SDMX090308-SD,S,drilling,0.8,-2.0,25,70,0.04,0.15,2.6,Spade insert for superalloy drilling low speed
+SDMX090308-SC,S,drilling,0.8,-2.0,30,80,0.05,0.17,2.8,Second superalloy drilling tougher coating
+CNGA120404-S010A,S,boring,0.4,-6.0,40,110,0.04,0.15,2.4,Whisker ceramic fine boring superalloys
+SDMT090304-SB,S,boring,0.4,-6.0,45,115,0.05,0.18,2.5,Carbide boring option superalloy
+WNMG080404-MF2,M,facing,0.4,0.0,105,190,0.06,0.22,3.2,Second stainless facing option sharp edge
+WNMG080408-KF2,K,facing,0.8,-6.0,130,200,0.12,0.44,4.4,Second cast-iron facing option
+SNMG120408-KB,K,boring,0.8,-6.0,115,190,0.12,0.38,4.6,Second cast-iron boring option
+APMT1137PDER-N3,N,milling,0.8,12.0,380,820,0.06,0.30,2.8,Second aluminium milling option high rake
+SDMT090308-SR,S,turning,0.8,-3.0,45,110,0.08,0.22,2.8,Second superalloy turning option tougher edge

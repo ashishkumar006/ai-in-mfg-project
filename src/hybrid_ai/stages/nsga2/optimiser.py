@@ -142,7 +142,8 @@ class _MillingProblem(_ProblemBase):  # type: ignore[misc]
         out["F"] = np.array([-mrr, -life, pred.ra_um], dtype=float)
         if self.enforce_safe:
             diag = diagnose(pred, sensor, self.thresholds,
-                            target_ra_um=self.target_ra_um)
+                            target_ra_um=self.target_ra_um,
+                            compute_health=False)
             out["G"] = np.array([0.0 if diag.state == "safe" else 1.0])
 
 
@@ -193,7 +194,8 @@ def _grid_fallback(
 def _is_safe(pred, sensor, thresholds: FuzzyThresholds,
              target_ra_um: float | None) -> bool:
     return (diagnose(pred, sensor, thresholds,
-                     target_ra_um=target_ra_um).state == "safe")
+                     target_ra_um=target_ra_um,
+                     compute_health=False).state == "safe")
 
 
 def _pareto_filter(solutions: list[ParetoSolution]) -> list[ParetoSolution]:

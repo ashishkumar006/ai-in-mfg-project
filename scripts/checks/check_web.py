@@ -65,17 +65,30 @@ js = get("/app.js").decode()
 for token in ["runPipeline", "plotly_click", "renderDiagnosis", "renderPareto",
               "exportReport", "runReplan", "/api/capp", "/api/pareto",
               "/api/diagnose", "/api/replan",
-              "/api/compare", "/api/model_metrics", "/api/status"]:
+              "/api/compare", "/api/model_metrics", "/api/status",
+              "hypervolume", "spacing", "taylor_check", "paretoMetaHtml"]:
     check(f"js contains {token}", token in js)
 css = get("/styles.css").decode()
 check("css has theme + badges", ":root" in css and ".badge.safe" in css)
 
 # 2. status / catalog ------------------------------------------------------
+from pathlib import Path
+REPO_ROOT = next(p for p in Path(__file__).resolve().parents
+                 if (p / "pyproject.toml").exists())
+sys.path.insert(0, str(REPO_ROOT / "src"))
+from hybrid_ai.core.tooling_catalog import load_default_iso13399_catalog, coverage  # noqa: E402
+
 status = json.loads(get("/api/status"))
-check("status catalog size", status["catalog_size"] == 15, str(status["catalog_size"]))
+check("status catalog size == parsed ISO 13399 CSV",
+      status["catalog_size"] == len(load_default_iso13399_catalog()),
+      str(status["catalog_size"]))
 tools = json.loads(get("/api/catalog"))["tools"]
 ops = {t["operation"] for t in tools}
 check("catalog covers 5 operations", len(ops) == 5, str(sorted(ops)))
+check("catalog covers every (group, operation) twice",
+      len(coverage(load_default_iso13399_catalog())) == 25
+      and min(coverage(load_default_iso13399_catalog()).values()) == 2,
+      str(min(coverage(load_default_iso13399_catalog()).values())))
 
 # 3. CAPP matrix (rules-only, fast) ----------------------------------------
 matched, empty = 0, 0

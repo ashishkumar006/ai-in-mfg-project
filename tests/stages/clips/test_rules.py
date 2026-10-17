@@ -27,6 +27,35 @@ def test_rules_present() -> None:
     assert "superalloy-cautious" in names
 
 
+def test_clips_engine_agrees_with_rule_specification() -> None:
+    """Selection runs in CLIPS; the Rule predicates are the readable spec.
+
+    They must agree everywhere on the catalog/operating matrix, or one of
+    the two representations has drifted.
+    """
+    import clips as clipspy
+
+    assert hasattr(clipspy, "Environment")
+    catalog = build_default_tool_catalog()
+    judgments: list[tuple[str, str, str, str, bool]] = []
+    for iso in ("P", "M", "K", "N", "S"):
+        for operation in ("turning", "facing", "milling", "drilling", "boring"):
+            for machine in ("light", "medium", "heavy"):
+                for target_ra in (0.8, 1.6):
+                    p = _spec(iso_group=iso, operation=operation,
+                              machine=machine, target_ra_um=target_ra)
+                    via_clips = {t.insert_code for t in select_tools(p, catalog)}
+                    via_predicates = {t.insert_code
+                                      for t in select_tools(p, catalog,
+                                                            rules=build_rules())}
+                    same = via_clips == via_predicates
+                    judgments.append((iso, operation, machine,
+                                      str(target_ra), same))
+    disagreements = [j for j in judgments if not j[4]]
+    assert not disagreements, f"CLIPS vs predicate drift: {disagreements[:5]}"
+    assert len(judgments) == 150
+
+
 def test_iso_match_filters_correctly() -> None:
     catalog = build_default_tool_catalog()
     p = _spec(iso_group="S")

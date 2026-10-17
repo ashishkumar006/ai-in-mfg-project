@@ -136,6 +136,9 @@ def run(part: PartSpec, failed_insert: str | None = None,
         reading = "no_improvement"
 
     body.update({
+        "stage": "clips",
+        "engine": "clipspy (rule re-plan through the Stage-1 rule engine, "
+                  "per deck slide 4)",
         "resolved": resolved,
         "verdict": verdict,
         "reading": reading,

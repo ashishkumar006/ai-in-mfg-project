@@ -40,13 +40,14 @@ def test_spec_matches_run_signature() -> None:
                 f"{name}.run() takes undocumented kwarg {key!r}")
 
 
-def test_select_tool_matches_stage_calls() -> None:
-    from hybrid_ai.core.synthetic import build_default_tool_catalog
+def test_select_tool_matches_stage_calls(monkeypatch) -> None:
+    from hybrid_ai.core.tooling_catalog import load_default_iso13399_catalog
     from hybrid_ai.stages.clips.rules import build_capp_sheet, rank_tools
-    from hybrid_ai.tools import select_tool
+    from hybrid_ai.tools import _models, select_tool
 
     part = _part(operation="milling", iso_group="M")
-    catalog = build_default_tool_catalog()
+    catalog = load_default_iso13399_catalog()
+    monkeypatch.setattr(_models, "get_catalog", lambda: list(catalog))
     operations, candidates, selected, envelope, notes = build_capp_sheet(part, catalog)
     body = select_tool.run(part)
     assert body["operations"] == operations
@@ -126,12 +127,15 @@ def test_compare_mlp_row_matches_predict_tool() -> None:
     assert rows["MLP (blended)"]["ra_um"] == solo["ra_um"]
 
 
-def test_resolve_tool_error_codes() -> None:
+def test_resolve_tool_error_codes(monkeypatch) -> None:
     from hybrid_ai.tools import _models
 
     with pytest.raises(ToolError) as exc_info:
         _models.resolve_tool(_part(), "NOPE")
     assert exc_info.value.code == "unknown_tool"
+    mini = [t for t in _models.get_catalog()
+            if t.iso_group == "P" and t.operation == "turning"]
+    monkeypatch.setattr(_models, "get_catalog", lambda: list(mini))
     with pytest.raises(ToolError) as exc_info:
         _models.resolve_tool(_part(iso_group="S", operation="drilling"), None)
     assert exc_info.value.code == "no_match"

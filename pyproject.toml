@@ -15,3 +15,8 @@ where = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
 pythonpath = ["src"]
+filterwarnings = [
+    # scikit-fuzzy 0.5 internals call np.maximum/np.minimum with an output
+    # argument deprecated by numpy 2.x; harmless today, broken upstream.
+    "ignore::DeprecationWarning:skfuzzy.*",
+]

@@ -1,4 +1,4 @@
-# Validation
+﻿# Validation
 
 Held-out metrics for the four ANN models and the NSGA-II front.
 Reproduce with `notebooks/colab_train.py` and
@@ -155,7 +155,7 @@ physical clips (V_B 0.02–1.5, R_a 0.2–6.0).
 
 ## 6. Tests
 
-- `pytest`: **151 passed** (incl. safe-only fronts, tolerance-relative
+- `pytest`: **162 passed** (incl. safe-only fronts, tolerance-relative
   fuzzy, MC uncertainty, measured-sensor, kinematic-Ra tests).
 - Extra verification (`verify_all.py` logic): synthetic scale,
   milling-only selection, NASA shapes/Ra, MLP monotonicity,
@@ -237,6 +237,48 @@ than asserted:
   invents a fix.
 
 Also: `scripts/checks/bench_speed.py` reports per-stage latency
-(rules ≈ 0 ms, predict ≈ 0.2 ms, NSGA-II 24×12 ≈ 67 ms; full pipeline
-~67 ms) and search precision (NSGA-II with the gate on returns
+(rules ~11 ms with the 50-insert clipspy catalog, predict ~0.7 ms,
+NSGA-II 24×12 ~166 ms; full pipeline ~177 ms) and search precision
 24/24 safe vs 90/288 = 31% for random sampling on equal budget).
+
+## 13. Deck-alignment round (clipspy, scikit-fuzzy, ISO 13399 catalog, spread)
+
+Second pass against the deck's slide 5 tech stack, this time actually
+importing the named libraries instead of private equivalents:
+
+- **CLIPS on clipspy** (stages/clips/rules.py). The rule set (5 reject rules +
+  eligible/fill) is compiled into a real
+  CLIPS 6.4 environment through clipspy (Environment.build per
+  toplevel block - it compiles one construct at a time). Selection
+  defaults to the CLIPS engine; the predicate list is kept for the
+  per-rule diagnostics path, and a 150-part matrix test proves the two
+  engines agree (test_clips_engine_agrees_with_rule_specification).
+- **scikit-fuzzy** (stages/fuzzy/diagnoser.py, stages/fuzzy/health.py).
+  The classifier's membership primitives now come from `fuzz.trimf`
+  (behaviour identical on the classifier's reachable domain; the
+  critical "unbounded plateau" edge stays custom because skfuzzy's
+  trapmf needs a finite end - this is documented in the module).
+  In addition there is a genuine Mamdani control system (3
+  antecedents, centroid-defuzzified) producing a **Tool Health Index**
+  0-100 on the same band boundaries as the state classifier
+  (FuzzyDiagnosis.tool_health_index); the gate still acts on the
+  state, never on the gauge.
+- **ISO 13399-style catalog** (core/tooling_catalog.py +
+  src/hybrid_ai/assets/tool_catalog_iso13399.csv). The deck's
+  "Tooling Catalog -> parsed & structured -> SQLite (ISO-keyed)" flow
+  is real now: 50 inserts (2 per (group, operation), illustrative
+  designations from publicly documented families - NOT the proprietary
+  Coromant export, and the CSV says so), each row validated on parse
+  (ranges, ISO groups, operations, duplicate codes), served from
+  data/processed/tool_catalog.sqlite. The ~15-insert fallback list
+  remains as a safety net. Every (group, operation, severity) cell
+  now selects an insert (the old 33/75 no-match gaps are gone), and
+  re-plan has a second insert in every cell.
+- **Pareto spread** (optimize_pareto.spread). Schott-spacing CV of
+  nearest-neighbour distances in the normalised objective space plus
+  the axis-wise extent, next to the existing hypervolume (deck slide 5
+  names hypervolume *and* spread). Surfaced in the web UI alongside
+  the Taylor verdict; the browser Re-plan verdict is included in the
+  exported JSON report.
+
+Verification after this round: `pytest` **162 passed**, `scripts/checks/check_web.py` 97/0 endpoint calls against the live server (ISO coverage of all 25 cells asserted directly), `scripts/checks/validate_pipeline.py` **0 failures** (675 + 2,048 invariants; the N/drilling envelopes sit in the 400-900 m/min band the checker knows), and `scripts/checks/stress_test.py 300` on the 50-insert catalog: **2,586 invariants passed, 0 failures** in 182 s (607 ms/part - slower than the minimum pipeline because all 300 parts now reach NSGA-II instead of skipping 44% of the grid). Coverage 300/300 matched; diagnosis distribution at the envelope midpoint 35.7% safe / 34.7% caution / 29.7% critical; trusted-model spread <= 0.127 mm (48/48 within 0.15); 0 dominated points; 0 unsafe points in safe-only fronts. 62 empty fronts all self-explain (41 no_safe_setting_exists, 21 search_missed_safe_point). 29 anomalies recorded: 'midpoint worse than envelope top' - worth a dedicated monotonicity test, not a correctness bug.

@@ -52,6 +52,9 @@ def run(part: PartSpec, point: OperatingPoint,
         },
         "state": diag.state,
         "explanation": diag.explanation,
+        "tool_health_index": (
+            round(diag.tool_health_index, 1)
+            if diag.tool_health_index is not None else None),
         "memberships": {
             "wear": round(diag.wear_membership, 3),
             "roughness": round(diag.roughness_membership, 3),

@@ -32,11 +32,16 @@ def test_catalog_covers_all_operations() -> None:
 
 def test_capp_drilling_selects_drill() -> None:
     body = client.post("/api/capp", json={**PART, "operation": "drilling"}).json()
-    assert body["selected"]["insert_code"] == "SDMX090308-P"
+    assert body["selected"]["insert_code"] == "SDMX090308-P2"
     assert body["envelope"] is not None
 
 
-def test_capp_no_match_reports_why() -> None:
+def test_capp_no_match_reports_why(monkeypatch) -> None:
+    from hybrid_ai.tools import _models
+
+    mini = [t for t in _models.get_catalog()
+            if t.iso_group == "P" and t.operation == "turning"]
+    monkeypatch.setattr(_models, "get_catalog", lambda: list(mini))
     body = client.post(
         "/api/capp",
         json={**PART, "iso_group": "S", "operation": "drilling"},
@@ -138,7 +143,12 @@ def test_pareto_unknown_tool_is_404() -> None:
     assert r.status_code == 404
 
 
-def test_diagnose_without_match_is_422() -> None:
+def test_diagnose_without_match_is_422(monkeypatch) -> None:
+    from hybrid_ai.tools import _models
+
+    mini = [t for t in _models.get_catalog()
+            if t.iso_group == "P" and t.operation == "turning"]
+    monkeypatch.setattr(_models, "get_catalog", lambda: list(mini))
     r = client.post("/api/diagnose", json={
         "part": {**PART, "iso_group": "S", "operation": "drilling"},
         "point": {"v_c_mpm": 60.0, "f_mmpr": 0.15, "ap_mm": 1.0},
@@ -146,7 +156,12 @@ def test_diagnose_without_match_is_422() -> None:
     assert r.status_code == 422
 
 
-def test_compare_without_match_is_422() -> None:
+def test_compare_without_match_is_422(monkeypatch) -> None:
+    from hybrid_ai.tools import _models
+
+    mini = [t for t in _models.get_catalog()
+            if t.iso_group == "P" and t.operation == "turning"]
+    monkeypatch.setattr(_models, "get_catalog", lambda: list(mini))
     r = client.post("/api/compare", json={
         "part": {**PART, "iso_group": "S", "operation": "drilling"},
         "point": {"v_c_mpm": 60.0, "f_mmpr": 0.15, "ap_mm": 1.0},

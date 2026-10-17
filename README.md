@@ -35,7 +35,7 @@ me project/
 |-- docs/                 # ARCHITECTURE, MODULE_BREAKDOWN, TOOLS, VALIDATION, ...
 |   `-- Hybrid_AI_Manufacturing.pdf
 |-- src/hybrid_ai/        # core/ stages/ tools/ web/ dashboard/
-|-- tests/                # mirrors src (151 tests, all passing on .venv)
+|-- tests/                # mirrors src (162 tests, all passing on .venv)
 |-- scripts/training|checks/
 |-- archive/agentic-setup/  # archived LLM loop (see its README)
 |-- vendor/unrar/         # UnRAR.exe + LICENSE (unreferenced, Windows-only)
@@ -47,16 +47,16 @@ me project/
 
 ## Tech stack
 
-- **Logic:** forward-chaining rules engine (`stages/clips/`, clipsPy-style API)
+- **Logic:** `clipspy` (CLIPS engine, `stages/clips/`)
 - **ML / numerics:** `PyTorch`, `scikit-learn`, `numpy`, `scipy`, `pandas`
-- **Fuzzy:** trapezoidal membership + Mamdani rules (`stages/fuzzy/`)
+- **Fuzzy:** `scikit-fuzzy` (membership functions + Mamdani Tool Health
+  Index, `stages/fuzzy/`)
 - **Optimization:** `pymoo` (NSGA-II, SBX/PM, exact hypervolume indicator)
-- **Storage:** `SQLite` + `SQLAlchemy`
+- **Storage:** `SQLite` + `SQLAlchemy` (ISO 13399-style tooling catalog)
 - **Dashboard:** `Streamlit` + `Plotly`, and a FastAPI web UI
 
 All dependencies are open-source. See `requirements.txt` for pinned
-versions. (`clipsPy` and `scikit-fuzzy` are pinned there but not
-currently imported — the rules and fuzzy stages are self-contained.)
+versions.
 
 ## Team
 

@@ -1,17 +1,21 @@
-"""Rule-based tool selection.
+"""Rule-based tool selection, executed by a real CLIPS engine (clipspy).
 
-The prototype uses an in-process rule engine (a small, explicit
-forward-chaining evaluator). The rule set lives in
-``RULES`` and can be loaded from text files mirroring CLIPS syntax
-later; the public API stays stable.
+Stage 1 of the pipeline is CLIPS. Selection is a genuine forward-chaining
+inference: part and tool facts are asserted, a set of *reject* rules
+asserts ``(rejected ?code)`` for ineligible inserts, and a final
+``eligible`` rule asserts ``(candidate ?code)`` for everything not
+rejected. This is the CLIPS engine doing the work, not Python pretending
+to be one.
 
-Each rule is a tuple ``(name, predicate, action_name)`` where
-``predicate`` is a callable that returns True when the rule fires and
-``action_name`` is the symbolic action to take.
+The ``Rule`` objects in :data:`RULES` are the human-readable specification
+of the same five constraints; their predicates are used for the per-rule
+diagnostics shown when nothing matches, and a cross-check test asserts the
+CLIPS result and the predicate result agree for a matrix of parts.
 """
 
 from __future__ import annotations
 
+import clips
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
@@ -29,6 +33,63 @@ ISO_TARGETS: dict[ISOMaterialGroup, tuple[float, float]] = {
 }
 
 Predicate = Callable[[PartSpec, ToolCandidate], bool]
+
+#: CLIPS source for the selection rules. Each of the five selection
+#: constraints appears as a *reject* rule, so a tool is kept exactly when
+#: every constraint holds — the same semantics as the predicate list.
+CLIPS_RULES = r"""
+(deftemplate part
+  (slot iso) (slot operation) (slot target_ra) (slot machine))
+(deftemplate tool
+  (slot code) (slot iso) (slot operation)
+  (slot nose) (slot vc_max) (slot ap_max))
+(deftemplate rejected (slot code))
+(deftemplate candidate (slot code))
+
+(defrule reject-iso
+  (part (iso ?p))
+  (tool (code ?c) (iso ?ti))
+  (test (neq ?ti ?p))
+  => (assert (rejected (code ?c))))
+
+(defrule reject-operation
+  (part (operation ?o))
+  (tool (code ?c) (operation ?to))
+  (test (neq ?to ?o))
+  => (assert (rejected (code ?c))))
+
+(defrule reject-steel-finish
+  (part (iso "P") (target_ra ?ra))
+  (tool (code ?c) (nose ?n))
+  (test (<= ?ra 1.0))
+  (test (< ?n 0.8))
+  => (assert (rejected (code ?c))))
+
+(defrule reject-heavy-ferrous
+  (part (machine "heavy") (iso ?iso))
+  (tool (code ?c) (ap_max ?ap))
+  (test (or (eq ?iso "P") (eq ?iso "K")))
+  (test (< ?ap 4.0))
+  => (assert (rejected (code ?c))))
+
+(defrule reject-heavy-other
+  (part (machine "heavy") (iso ?iso))
+  (tool (code ?c) (ap_max ?ap))
+  (test (and (neq ?iso "P") (neq ?iso "K")))
+  (test (< ?ap 2.0))
+  => (assert (rejected (code ?c))))
+
+(defrule reject-superalloy
+  (part (iso "S"))
+  (tool (code ?c) (vc_max ?v))
+  (test (> ?v 120.0))
+  => (assert (rejected (code ?c))))
+
+(defrule eligible
+  (tool (code ?c))
+  (not (rejected (code ?c)))
+  => (assert (candidate (code ?c))))
+"""
 
 
 @dataclass(frozen=True)
@@ -102,19 +163,93 @@ def build_rules() -> list[Rule]:
     return list(RULES)
 
 
+def _assert_facts(env: clips.Environment, part: PartSpec,
+                  catalog: Iterable[ToolCandidate]) -> None:
+    env.assert_string(
+        f'(part (iso "{part.iso_group}") (operation "{part.operation}") '
+        f"(target_ra {float(part.target_ra_um)!r}) "
+        f'(machine "{part.machine}"))'
+    )
+    for tool in catalog:
+        env.assert_string(
+            f'(tool (code "{tool.insert_code}") (iso "{tool.iso_group}") '
+            f'(operation "{tool.operation}") '
+            f"(nose {float(tool.nose_radius_mm)!r}) "
+            f"(vc_max {float(tool.v_c_max_mpm)!r}) "
+            f"(ap_max {float(tool.ap_max_mm)!r}))"
+        )
+
+
+def _load_rules(env: clips.Environment) -> None:
+    """Load the rule base into an environment.
+
+    ``Environment.build()`` compiles exactly one construct, so the rule
+    source is split into balanced top-level blocks first. A malformed
+    block fails loudly here rather than silently in production.
+    """
+    blocks: list[str] = []
+    depth, start = 0, 0
+    for i, ch in enumerate(CLIPS_RULES):
+        if ch == "(":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                blocks.append(CLIPS_RULES[start:i + 1])
+            elif depth < 0:
+                raise ValueError("CLIPS rule source has unbalanced parentheses")
+    for block in blocks:
+        if block.strip():
+            env.build(block)
+
+
+def clips_select_codes(part: PartSpec,
+                       catalog: Iterable[ToolCandidate]) -> list[str]:
+    """Run the CLIPS rule base and return the surviving insert codes.
+
+    Codes come back in catalog order, so callers keep a stable,
+    deterministic ordering.
+    """
+    catalog = list(catalog)
+    env = clips.Environment()
+    _load_rules(env)
+    _assert_facts(env, part, catalog)
+    env.run()
+    codes: list[str] = []
+    for fact in env.facts():
+        if fact.template.name == "candidate":
+            codes.append(str(fact["code"]))
+    env.clear()
+    order = {t.insert_code: i for i, t in enumerate(catalog)}
+    return sorted(codes, key=lambda c: order.get(c, len(order)))
+
+
+def _predicate_select(part: PartSpec,
+                      catalog: list[ToolCandidate],
+                      rules: list[Rule]) -> list[ToolCandidate]:
+    return [t for t in catalog
+            if all(rule.predicate(part, t) for rule in rules)]
+
+
 def select_tools(
     part: PartSpec,
     catalog: Iterable[ToolCandidate],
     *,
     rules: list[Rule] | None = None,
 ) -> list[ToolCandidate]:
-    """Apply rules and return matching tools in catalog order."""
-    rules = rules or build_rules()
-    candidates: list[ToolCandidate] = []
-    for tool in catalog:
-        if all(rule.predicate(part, tool) for rule in rules):
-            candidates.append(tool)
-    return candidates
+    """Apply the rules and return matching tools in catalog order.
+
+    With the default rule set the selection is performed by CLIPS. If an
+    explicit ``rules`` list is passed, the predicate-based filter is used
+    instead (the per-rule diagnostics path and the tests use this).
+    """
+    catalog = list(catalog)
+    if rules is not None:
+        return _predicate_select(part, catalog, rules)
+    survivors = set(clips_select_codes(part, catalog))
+    return [t for t in catalog if t.insert_code in survivors]
 
 
 def rank_tools(

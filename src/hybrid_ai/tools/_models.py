@@ -45,17 +45,50 @@ _big_missing: bool = False
 _turning: VicomtechTurningModel | None = None
 _turning_missing: bool = False
 _catalog: list | None = None
+_catalog_source: dict | None = None
+CATALOG_DB_PATH = ROOT / "data" / "processed" / "tool_catalog.sqlite"
 
 
 def get_catalog() -> list:
-    global _catalog
+    """The tooling catalog, parsed from the ISO 13399-style CSV and
+    served from the ISO-keyed SQLite store.
+
+    Persists the parsed catalog at ``data/processed/tool_catalog.sqlite``
+    so the SQLite schema is a real artifact downstream of the parse
+    step (CLIPS selection reads it through the repository). Falls back
+    to the 15-insert built-in list only if the catalog asset cannot be
+    parsed (missing/broken file).
+    """
+    global _catalog, _catalog_source
     if _catalog is None:
         with _lock:
             if _catalog is None:
-                repo = ToolCatalogRepository(":memory:")
-                repo.upsert(build_default_tool_catalog())
+                try:
+                    from hybrid_ai.core.tooling_catalog import \
+                        load_default_iso13399_catalog
+                    rows = load_default_iso13399_catalog()
+                    source = {"source": "iso13399_csv",
+                              "rows": len(rows)}
+                    db = CATALOG_DB_PATH
+                except Exception:
+                    rows = build_default_tool_catalog()
+                    source = {"source": "builtin_fallback",
+                              "rows": len(rows)}
+                    db = ":memory:"
+                if db != ":memory:":
+                    CATALOG_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+                repo = ToolCatalogRepository(db)
+                repo.replace(rows)
                 _catalog = repo.all()
+                _catalog_source = source
     return _catalog
+
+
+def catalog_source() -> dict:
+    """Provenance of the catalog ``get_catalog()`` serves."""
+    if get_catalog() and _catalog_source is not None:
+        return dict(_catalog_source)
+    return {"source": "unknown", "rows": 0}
 
 
 def get_mlp() -> WearRoughnessModel:

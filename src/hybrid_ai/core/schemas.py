@@ -119,15 +119,19 @@ class FuzzyDiagnosis:
     roughness_membership: float
     vibration_membership: float
     explanation: str = ""
+    tool_health_index: float | None = None
 
     def to_dict(self) -> dict:
-        return {
+        body = {
             "state": self.state,
             "wear_membership": self.wear_membership,
             "roughness_membership": self.roughness_membership,
             "vibration_membership": self.vibration_membership,
             "explanation": self.explanation,
         }
+        if self.tool_health_index is not None:
+            body["tool_health_index"] = round(self.tool_health_index, 1)
+        return body
 
 
 @dataclass(frozen=True)

@@ -71,6 +71,7 @@ def run(part: PartSpec, insert_code: str | None = None,
         "solutions": rows,
         "extremes": extremes,
         "hypervolume": _hypervolume(arr),
+        "spread": _front_spread(arr),
         "taylor_check": _taylor_check(part, tool, extremes),
     }
 
@@ -100,6 +101,46 @@ def _hypervolume(arr: dict) -> dict | None:
         "n_points": int(f.shape[0]),
         "ref_point": [round(float(v), 4) for v in ref],
         "method": "pymoo HV (exact, 3 objectives)",
+    }
+
+
+def _front_spread(arr: dict) -> dict | None:
+    """Spread of the front in optimiser objective space.
+
+    Two numbers, both on the minimised objective matrix
+    ``[-MRR, -tool_life, R_a]`` scaled to the unit cube per axis:
+
+    - ``spacing``: coefficient of variation of the nearest-neighbour
+      distances (Schott's spacing idea). 0 means the returned points sit
+      on a perfectly uniform grid; large means the front is clumped.
+    - ``extent``: the axis-wise spans of the front, i.e. how much of
+      each objective range the trade-off actually covers.
+
+    The deck's validation row names hypervolume *and* spread; this is
+    the spread half, independent of the reference-point choice that
+    hypervolume depends on.
+    """
+    pts = arr.get("mrr_cm3_per_min") or []
+    if len(pts) < 2:
+        return None
+    f = np.column_stack([
+        -np.asarray(arr["mrr_cm3_per_min"], dtype=float),
+        -np.asarray(arr["tool_life_min"], dtype=float),
+        np.asarray(arr["ra_um"], dtype=float),
+    ])
+    lo, hi = f.min(axis=0), f.max(axis=0)
+    span = np.where(hi - lo > 1e-12, hi - lo, 1.0)
+    norm = (f - lo) / span
+    d = np.linalg.norm(norm[:, None, :] - norm[None, :, :], axis=-1)
+    np.fill_diagonal(d, np.inf)
+    nn = d.min(axis=1)
+    spacing = float(nn.std(ddof=0) / max(nn.mean(), 1e-12))
+    return {
+        "spacing": spacing,
+        "n_points": int(f.shape[0]),
+        "extent": [round(float(v), 4) for v in (hi - lo)],
+        "method": "Schott spacing (CV of NN distances) on normalised "
+                  "objective space; extent = axis spans",
     }
 
 

@@ -30,9 +30,13 @@ def test_replan_resolves_when_a_safer_setting_exists() -> None:
     assert alt["envelope"]["v_c_mpm"][0] <= vc <= alt["envelope"]["v_c_mpm"][1]
 
 
-def test_replan_reports_no_alternative_honestly() -> None:
-    """Where the catalog has no second insert, the loop must say so, not
-    invent a fix."""
+def test_replan_reports_no_alternative_honestly(monkeypatch) -> None:
+    """Where the catalog has no other insert to try, the loop must say
+    so, not invent a fix."""
+    mini = [t for t in _models.get_catalog()
+            if t.insert_code == "SDMX090308-P"]
+    assert mini, "driving insert must exist in the bundled catalog"
+    monkeypatch.setattr(_models, "get_catalog", lambda: list(mini))
     part = _part(iso_group="K", operation="drilling", machine="heavy",
                  hardness_hb=330.0, target_ra_um=0.4, batch_size=5)
     out = replan.run(part, failed_insert="SDMX090308-P", failed_state="critical")

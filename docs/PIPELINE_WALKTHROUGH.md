@@ -64,8 +64,14 @@ yet usable on real industrial data. The gaps are:
    The NASA Milling dataset (167 runs, 6-channel sensor data, V_B) is
    publicly available but not downloaded or parsed.
 
-2. **No real Sandvik catalog ingestion.** The 15 inserts are hardcoded.
-   ISO 13399 catalog exports are not parsed.
+2. **No proprietary Sandvik export.** The catalog now *is* parsed:
+   `core/tooling_catalog.py` reads the bundled ISO 13399-representation
+   CSV (`src/hybrid_ai/assets/tool_catalog_iso13399.csv`, 50 inserts
+   from publicly documented families — illustrative, not Coromant's
+   database) into the ISO-keyed SQLite store at
+   `data/processed/tool_catalog.sqlite`. Every (group, operation) cell
+   has 2 inserts. Swapping in a true vendor export only requires a
+   conforming CSV.
 
 3. **No raw-signal path.** The ANN only accepts engineered features
    (V_c, feed, ap, …). It cannot read raw vibration / acoustic
@@ -126,8 +132,10 @@ without changing any downstream code.
 
 - In `dashboard/app.py`'s `get_model()`, check for `data/raw/nasa_milling.csv`.
 - If present, load from disk; otherwise fall back to synthetic.
-- Same for the catalog: check if SQLite has rows, otherwise use the
-  hardcoded 15 inserts.
+- Same for the catalog (already the case): `get_catalog()` parses the
+  bundled ISO 13399 CSV every process start, replaces the SQLite rows
+  (`data/processed/tool_catalog.sqlite`), and falls back to the 15-insert
+  built-in list only if the asset cannot be parsed.
 
 ### Phase 2 — Add deep-learning models (4–6 hours of code)
 

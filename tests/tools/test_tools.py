@@ -55,8 +55,18 @@ def test_select_tool_match_and_no_match() -> None:
     from hybrid_ai.tools import select_tool
 
     hit = select_tool.run(_part(operation="drilling"))
-    assert hit["selected"]["insert_code"] == "SDMX090308-P"
+    assert hit["selected"]["insert_code"] == "SDMX090308-P2"
     assert hit["envelope"] is not None
+
+
+def test_select_tool_no_match_on_pared_catalog(monkeypatch) -> None:
+    """The no-match diagnostics stay reachable even though the bundled
+    catalog now satisfies every (group, operation, severity) cell."""
+    from hybrid_ai.tools import _models, select_tool
+
+    mini = [t for t in _models.get_catalog()
+            if t.iso_group == "P" and t.operation == "turning"]
+    monkeypatch.setattr(_models, "get_catalog", lambda: list(mini))
     miss = select_tool.run(_part(iso_group="S", operation="drilling"))
     assert miss["selected"] is None
     assert miss["no_match"]["per_rule"] and miss["no_match"]["closest"]
@@ -87,10 +97,11 @@ def test_optimize_pareto_safe_only() -> None:
 
 
 def test_list_tools_filter() -> None:
+    from hybrid_ai.core.tooling_catalog import load_default_iso13399_catalog
     from hybrid_ai.tools import catalog
 
     all_tools = catalog.run_list()
-    assert len(all_tools["tools"]) == 15
+    assert len(all_tools["tools"]) == len(load_default_iso13399_catalog())
     drills = catalog.run_list(operation="drilling")
     assert drills["tools"] and all(t["operation"] == "drilling"
                                    for t in drills["tools"])
@@ -125,4 +136,4 @@ def test_capp_matrix_selected_xor_explained() -> None:
                     assert body["envelope"] is not None
                     assert body["selected"]["operation"] == op
                     assert body["selected"]["iso_group"] == iso
-    assert matched > 0 and empty > 0
+    assert matched == 75 and empty == 0

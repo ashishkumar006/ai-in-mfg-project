@@ -12,6 +12,8 @@ const PRESETS = {
 const ISO_NAMES = { P: "Steel", M: "Stainless", K: "Cast iron", N: "Aluminium", S: "Superalloy" };
 
 let lastPareto = [];
+let lastParetoMeta = null;
+let lastReplan = null;
 let lastReport = null;
 let sensorSource = "synthetic";
 
@@ -192,6 +194,12 @@ function renderDiagnosis(d, point) {
     "<div class='result-lead'>" + badgeFor(d.state) + "</div>" +
     "<table class='data'><tr><th>V<sub>B</sub> wear</th><th>R<sub>a</sub> finish</th><th>Confidence</th></tr>" +
     "<tr><td>" + d.v_b_mm + " mm</td><td>" + d.ra_um + " µm</td><td>" + d.confidence + "</td></tr></table>" +
+    (d.tool_health_index != null
+      ? "<table class='data mt'><tr><th>Tool Health Index (0-100)</th></tr><tr><td>" +
+        d.tool_health_index + " / 100</td></tr></table>" +
+        "<div class='health-bar-wrap'><div class='health-bar' style='width:" +
+        Math.max(0, Math.min(100, d.tool_health_index)) + "%'></div></div>"
+      : "") +
     (point ? "<p class='hint'>Diagnosed at V<sub>c</sub> " + Number(point.v_c_mpm).toFixed(0) +
       " m/min · feed " + Number(point.f_mmpr).toFixed(3) + " mm/rev · depth " +
       Number(point.ap_mm).toFixed(2) + " mm</p>" : "") +
@@ -213,15 +221,18 @@ async function refreshDiag(part, point, insertCode) {
   }
 }
 
-function renderPareto(solutions, extremes, tool, noFront) {
+function renderPareto(solutions, extremes, tool, noFront, meta) {
   const plot = $("pareto-plot"), chips = $("pareto-extremes");
   lastPareto = solutions || [];
+  lastParetoMeta = meta && (meta.hypervolume || meta.spread || meta.taylor_check)
+    ? meta : null;
   const ex = extremes || {};
   chips.innerHTML = ["max_mrr", "max_life", "min_ra"]
     .filter((k) => ex[k])
     .map((k) => "<span class='chip' title='" + k + "'><b>" + k.replace("_", " ") + "</b> " +
       Number(ex[k].v_c_mpm).toFixed(0) + " m/min · " + Number(ex[k].f_mmpr).toFixed(3) + " mm/rev</span>")
-    .join("");
+    .join("") +
+    (lastParetoMeta ? paretoMetaHtml(lastParetoMeta) : "");
   if (!lastPareto.length) {
     const nsf = noFront && noFront.diagnosis;
     setPanel("pareto-plot",
@@ -269,6 +280,27 @@ function renderPareto(solutions, extremes, tool, noFront) {
   });
 }
 
+function paretoMetaHtml(meta) {
+  const hv = meta.hypervolume;
+  const sp = meta.spread;
+  const tk = meta.taylor_check || {};
+  const bits = [];
+  if (hv && hv.value != null) {
+    bits.push("<span class='chip' title='3-objective hypervolume (pymoo, exact)'><b>HV</b> " +
+      hv.value.toExponential(2) + "</span>");
+  }
+  if (sp && sp.spacing != null) {
+    bits.push("<span class='chip' title='Schott spacing: uniformity of points in objective space; lower is more uniform'><b>Spread</b> " +
+      sp.spacing.toFixed(3) + "</span>");
+  }
+  if (tk.summary) {
+    const cls = tk.summary === "consistent" ? "state-safe" : "warn-text";
+    bits.push("<span class='chip' title='Flank-wear life from the ANN vs the extended Taylor equation, on the front extremes'><b>Taylor check</b> <span class='" + cls + "'>"
+      + esc(tk.summary) + "</span></span>");
+  }
+  return bits.length ? "<span class='hint mt' style='display:block'>" + bits.join(" ") + "</span>" : "";
+}
+
 async function refreshPareto(part, insertCode) {
   setPanel("pareto-plot", "<p class='muted'>Searching the Pareto front…</p>", true);
   try {
@@ -280,7 +312,7 @@ async function refreshPareto(part, insertCode) {
       seed: Number($("seed").value) || 42,
       safe_only: $("safe").checked,
     });
-    renderPareto(d.solutions, d.extremes, d.tool, d.no_safe_front);
+    renderPareto(d.solutions, d.extremes, d.tool, d.no_safe_front, d);
     if (d.solutions && d.solutions.length) {
       const n = d.solutions.length;
       const tag = n === 1 ? "1 safe setting found" : n + " safe settings found";
@@ -350,6 +382,8 @@ async function runPipeline() {
   $("summary-tag").textContent = "";
   resetStepper();
   stepState(1, "active");
+  lastParetoMeta = null;
+  lastReplan = null;
   setPanel("summary-body", "<p class='muted'>Step 1 of 4 — selecting an insert…</p>");
   scrollToResults();
 
@@ -410,6 +444,7 @@ async function runPipeline() {
       part, insert: sel.code, envelope: sel.envelope, midpoint: mid,
       diagnosis: diag, pareto_count: n, at: new Date().toISOString(),
     };
+    if (lastParetoMeta) lastReport.pareto_metrics = lastParetoMeta;
     $("export-btn").disabled = false;
     bind("replan-btn", "click", () => runReplan(part, sel, diag, mid));
   } catch (err) {
@@ -437,6 +472,7 @@ async function runReplan(part, sel, diag, mid) {
       return;
     }
     const d = alt.diagnosis;
+    lastReplan = out;
     body.innerHTML =
       "<div class='alert " + (out.resolved ? "good" : "warn") + "'>" +
       "<b>" + (out.resolved ? "Re-plan succeeded." : "Re-plan did not fix it.") + "</b> " +
@@ -455,6 +491,7 @@ async function runReplan(part, sel, diag, mid) {
 
 function exportReport() {
   if (!lastReport) return;
+  if (lastReplan) lastReport.replan = lastReplan;
   const blob = new Blob([JSON.stringify(lastReport, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);

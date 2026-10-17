@@ -304,8 +304,10 @@ for real data without changing the pipeline shape.
 
 1. User fills the form, presses **Run pipeline** (`dashboard/app.py`).
 2. `get_model()` trains the MLP on synthetic data (cached).
-3. `get_catalog()` returns the 15 inserts from the in-memory SQLite
-   repo (cached).
+3. `get_catalog()` parses the bundled ISO 13399 CSV (50 inserts) into
+   the ISO-keyed SQLite store `data/processed/tool_catalog.sqlite` and
+   returns it (cached; falls back to the 15-insert built-in list if the
+   asset is unreadable).
 4. `build_capp_sheet(part, catalog)` runs CLIPS → returns the
    5-tuple.
 5. **CAPP tab** is rendered immediately.
