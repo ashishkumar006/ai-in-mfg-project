@@ -96,6 +96,40 @@ def test_optimize_pareto_safe_only() -> None:
     assert set(front["extremes"]) == {"max_mrr", "max_life", "min_ra"}
 
 
+def test_no_safe_front_explains_itself_honestly() -> None:
+    """An aluminium part whose whole envelope is unsafe must report
+    ``no_safe_setting_exists``, not a search miss, and the empty path
+    must still carry the metric keys."""
+    from hybrid_ai.tools import optimize_pareto
+
+    part = _part(iso_group="N", hardness_hb=150.0)
+    out = optimize_pareto.run(part, pop_size=8, n_generations=3)
+    assert out["solutions"] == []
+    nsf = out["no_safe_front"]
+    assert nsf["reason"] == "no_safe_setting_exists"
+    assert out["spread"] is None
+    assert out["hypervolume"] is None
+
+
+def test_corner_probe_reports_search_miss_not_no_safe_point() -> None:
+    """Regression: the no-front explainer's first candidate (the envelope
+    corner) used to be excluded from its own safe check, so a genuinely
+    safe corner was reported as ``no_safe_setting_exists``."""
+    from hybrid_ai.stages.clips.rules import build_capp_sheet
+    from hybrid_ai.tools import _models
+    from hybrid_ai.tools.optimize_pareto import _explain_no_front
+
+    part = _part()
+    tool = _models.resolve_tool(part, None)
+    out = _explain_no_front(part, tool, safe_only=True)
+    assert out["reason"] == "search_missed_safe_point"
+    assert out["diagnosis"]["state"] == "safe"
+    _, _, _, env, _ = build_capp_sheet(part, _models.get_catalog())
+    assert out["point"] == {"v_c_mpm": env["v_c_mpm"][0],
+                            "f_mmpr": env["f_mmpr"][0],
+                            "ap_mm": env["ap_mm"][0]}
+
+
 def test_list_tools_filter() -> None:
     from hybrid_ai.core.tooling_catalog import load_default_iso13399_catalog
     from hybrid_ai.tools import catalog

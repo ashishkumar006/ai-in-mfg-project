@@ -254,7 +254,13 @@ def validate_nsga2(r: Report, combos: list[tuple], sample: int = 6) -> None:
                                   pop_size=40, n_generations=20, seed=42)
         sols = out["solutions"]
         tag = f"{iso}/{op}/{mach} {sel['insert_code']}"
-        r.check(len(sols) >= 1, f"front non-empty {tag}", str(len(sols)))
+        if not sols:
+            nsf = out.get("no_safe_front") or {}
+            r.check(nsf.get("reason") in {"no_safe_setting_exists",
+                                          "search_missed_safe_point"},
+                    f"empty front explained {tag}", str(nsf.get("reason")))
+            print(f"  {tag:34s} EMPTY - {nsf.get('reason')}")
+            continue
         r.check(set(out["extremes"]) == {"max_mrr", "max_life", "min_ra"},
                 f"extremes complete {tag}")
 

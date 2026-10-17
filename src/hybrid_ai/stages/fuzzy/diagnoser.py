@@ -70,6 +70,16 @@ def _classify_deterministic(
     vibration: float,
     thresholds: FuzzyThresholds,
 ) -> tuple[FuzzyState, float, float, float]:
+    severity = max(
+        _signal_severity(wear, thresholds.v_b_low, thresholds.v_b_mid,
+                         thresholds.v_b_high),
+        _signal_severity(ra, thresholds.ra_low, thresholds.ra_mid,
+                         thresholds.ra_high),
+        _signal_severity(vibration, thresholds.vib_low, thresholds.vib_mid,
+                         thresholds.vib_high),
+    )
+    state: FuzzyState = ("safe", "caution", "critical")[severity]
+
     wear_high = _trap_hi(
         np.array([wear]),
         thresholds.v_b_mid,
@@ -86,43 +96,34 @@ def _classify_deterministic(
         thresholds.vib_high,
     )[0]
 
-    caution = max(
-        _tri(
-            np.array([wear]),
-            thresholds.v_b_low,
-            (thresholds.v_b_low + thresholds.v_b_mid) / 2.0,
-            thresholds.v_b_mid,
-        )[0],
-        _tri(
-            np.array([ra]),
-            thresholds.ra_low,
-            (thresholds.ra_low + thresholds.ra_mid) / 2.0,
-            thresholds.ra_mid,
-        )[0],
-        _tri(
-            np.array([vibration]),
-            thresholds.vib_low,
-            (thresholds.vib_low + thresholds.vib_mid) / 2.0,
-            thresholds.vib_mid,
-        )[0],
-    )
-
-    critical = max(wear_high, ra_high, vib_high)
-    safe = max(
-        0.0,
-        1.0
-        - max(caution, critical)
-        - 0.5 * min(caution, critical),
-    )
-
-    if critical >= 0.3 and critical >= caution:
-        state: FuzzyState = "critical"
-    elif caution > critical and caution > safe:
-        state = "caution"
-    else:
-        state = "safe"
-
     return state, float(wear_high), float(ra_high), float(vib_high)
+
+
+def _signal_severity(x: float, low: float, mid: float, high: float) -> int:
+    """Max-membership severity of one signal: 0 safe, 1 caution, 2 critical.
+
+    The three bands are the ones ``health.py`` draws: fresh falls across
+    ``[low, mid]``, caution is the midpoint hump, critical rises from
+    ``mid``. Max-membership is monotone in ``x``; the earlier rule
+    required the critical membership to reach 0.3, which left a "safe"
+    dead zone just above every mid threshold (e.g. 0.32 mm wear).
+    """
+    arr = np.array([float(x)])
+    fresh = _falls(arr, low, mid)[0]
+    caution = _tri(arr, low, (low + mid) / 2.0, mid)[0]
+    critical = _trap_hi(arr, mid, high)[0]
+    if critical > 0.0:
+        return 2
+    if caution >= fresh:
+        return 1
+    return 0
+
+
+def _falls(x: np.ndarray, low: float, mid: float) -> np.ndarray:
+    """Falling edge of a fresh band: 1 up to ``low``, 0 from ``mid`` on."""
+    if mid <= low:
+        return np.zeros_like(x, dtype=float)
+    return np.clip((mid - x) / (mid - low), 0.0, 1.0)
 
 
 def _trap_hi(x: np.ndarray, lo: float, mid: float) -> np.ndarray:
@@ -171,7 +172,7 @@ def diagnose(
                                                       vibration)
         except Exception:  # pragma: no cover - the gauge must never block a diagnosis
             ghi = None
-    explanation = _explain(state, wear, sensor, wm, rm, vm, thresholds)
+    explanation = _explain(state, wear, sensor, thresholds)
     return FuzzyDiagnosis(
         state=state,
         wear_membership=wm,
@@ -186,25 +187,26 @@ def _explain(
     state: FuzzyState,
     wear: WearPrediction,
     sensor: SensorReading | None,
-    wm: float,
-    rm: float,
-    vm: float,
     thresholds: FuzzyThresholds,
 ) -> str:
     bits: list[str] = []
-    if wm > 0.4:
-        bits.append(
-            f"predicted flank wear {wear.v_b_mm:.2f} mm in critical band"
-        )
-    if rm > 0.4:
-        bits.append(
-            f"predicted surface roughness {wear.ra_um:.2f} um above target {thresholds.ra_mid:.1f} um"
-        )
-    if sensor is not None and vm > 0.4:
-        bits.append(
-            f"vibration RMS {sensor.vibration_rms_g:.2f} g above caution threshold"
-        )
-    if not bits and state == "caution":
+    if state == "critical":
+        if wear.v_b_mm >= thresholds.v_b_mid:
+            bits.append(
+                f"predicted flank wear {wear.v_b_mm:.2f} mm above the "
+                f"{thresholds.v_b_mid:.2f} mm limit"
+            )
+        if wear.ra_um >= thresholds.ra_mid:
+            bits.append(
+                f"predicted surface roughness {wear.ra_um:.2f} um above target "
+                f"{thresholds.ra_mid:.1f} um"
+            )
+        if sensor is not None and sensor.vibration_rms_g >= thresholds.vib_mid:
+            bits.append(
+                f"vibration RMS {sensor.vibration_rms_g:.2f} g above the "
+                f"severe threshold"
+            )
+    elif state == "caution":
         if wear.v_b_mm >= thresholds.v_b_low:
             bits.append(
                 f"predicted flank wear {wear.v_b_mm:.2f} mm in caution band"

@@ -104,7 +104,7 @@ judgements: 1.2 µm roughness is a failure on a 0.8 µm drawing and
 perfectly fine on a 3.2 µm one. Fuzzy logic maps predicted wear,
 roughness and vibration through smooth membership curves into three
 words — **safe, caution, critical** — with a one-sentence reason
-("vibration RMS 1.85 g above caution threshold"). Our roughness bands
+("vibration RMS 1.85 g in caution band"). Our roughness bands
 scale with the part's own tolerance, so the same physics gets a fair
 trial on every drawing.
 

@@ -10,6 +10,7 @@ as the active envelope, then searches speed/feed/depth.
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from typing import Callable
 
@@ -27,6 +28,7 @@ from hybrid_ai.stages.fuzzy.diagnoser import FuzzyThresholds, diagnose
 try:
     from pymoo.algorithms.moo.nsga2 import NSGA2
     from pymoo.core.problem import ElementwiseProblem
+    from pymoo.core.sampling import Sampling
     from pymoo.operators.crossover.sbx import SBX
     from pymoo.operators.mutation.pm import PM
     from pymoo.operators.sampling.lhs import LHS
@@ -38,6 +40,29 @@ try:
 except Exception:  # pragma: no cover - optional dep path
     _HAS_PYMOO = False
     _ProblemBase = object  # type: ignore[assignment,misc]
+    Sampling = object  # type: ignore[assignment,misc]
+
+
+if _HAS_PYMOO:
+    class _CornerLHS(LHS):
+        """LHS whose first rows are the eight envelope corners.
+
+        A hard part's fuzzy-safe region can be a thin corner of the
+        envelope (lowest speed, feed *and* depth) that uniform sampling
+        misses at any realistic budget — the 60x40 default included.
+        The corners are deterministic and inside the envelope, so this
+        only widens coverage; the physics stays untouched.
+        """
+
+        def _do(self, problem, n_samples, *args, random_state=None, **kwargs):
+            X = super()._do(problem, n_samples, *args,
+                            random_state=random_state, **kwargs)
+            xl, xu = problem.bounds()
+            corners = np.array(list(itertools.product(
+                *zip(np.asarray(xl, dtype=float), np.asarray(xu, dtype=float)))))
+            X[:min(len(corners), n_samples)] = corners[:min(len(corners),
+                                                            n_samples)]
+            return X
 
 
 @dataclass
@@ -248,6 +273,11 @@ def optimise(
     When ``config.enforce_safe`` is true, only fuzzy-safe operating
     points are feasible (pymoo constraint, or post-filter in the grid
     fallback), so every returned solution is safe-by-construction.
+
+    The initial population seeds the eight velocity/feed/depth envelope
+    corners before the Latin-hypercube fill, so a safe pocket that lives
+    in a corner (as it does for several steel inserts) cannot be missed
+    by uniform sampling.
     """
     config = config or NsgaConfig()
     enforce = config.enforce_safe
@@ -265,7 +295,7 @@ def optimise(
     cache = problem.cache
     algorithm = NSGA2(
         pop_size=config.pop_size,
-        sampling=LHS(),
+        sampling=_CornerLHS(),
         crossover=SBX(prob=0.9, eta=15),
         mutation=PM(eta=20),
         eliminate_duplicates=True,

@@ -16,9 +16,10 @@ def _part(**kw) -> PartSpec:
 
 
 def test_replan_resolves_when_a_safer_setting_exists() -> None:
-    """A hard P part whose envelope midpoint is critical: the loop must be
-    able to find a safe insert+setting combination."""
-    part = _part(hardness_hb=300.0, target_ra_um=0.8)
+    """A nickel part whose envelope midpoint is critical: the loop must be
+    able to find a genuinely safe insert+setting combination."""
+    part = _part(iso_group="S", operation="turning", hardness_hb=220.0,
+                 target_ra_um=1.6)
     _, _, sel, _, _ = build_capp_sheet(part, _models.get_catalog())
     out = replan.run(part, failed_insert=sel.insert_code, failed_state="critical")
     assert out["resolved"] is True
@@ -28,6 +29,25 @@ def test_replan_resolves_when_a_safer_setting_exists() -> None:
     assert alt["insert_code"] != sel.insert_code
     vc = alt["recommended_point"]["v_c_mpm"]
     assert alt["envelope"]["v_c_mpm"][0] <= vc <= alt["envelope"]["v_c_mpm"][1]
+
+
+def test_replan_improves_honestly_when_no_safe_setting_exists() -> None:
+    """A hard P part cannot reach "safe" at any tried setting (vibration
+    floors in the caution band): the loop must report "improved" — not
+    claim a safe fix — and the recommended state must beat the midpoint.
+
+    Regression for the classifier dead zone: the old floor rule called
+    a 1.34 g vibration "safe", so this exact scenario used to pass as a
+    fake safe resolution."""
+    part = _part(hardness_hb=300.0, target_ra_um=0.8)
+    _, _, sel, _, _ = build_capp_sheet(part, _models.get_catalog())
+    out = replan.run(part, failed_insert=sel.insert_code, failed_state="critical")
+    assert out["resolved"] is True
+    assert out["reading"] == "improved"
+    alt = out["alternative"]
+    assert alt["diagnosis"]["state"] == "caution"
+    assert alt["midpoint_diagnosis"]["state"] == "critical"
+    assert "not fully safe" in out["verdict"]
 
 
 def test_replan_reports_no_alternative_honestly(monkeypatch) -> None:

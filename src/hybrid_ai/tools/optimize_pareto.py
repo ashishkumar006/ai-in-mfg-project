@@ -56,6 +56,7 @@ def run(part: PartSpec, insert_code: str | None = None,
     if not rows:
         return {"tool": tool.insert_code, "safe_only": safe_only,
                 "solutions": [], "extremes": {},
+                "hypervolume": None, "spread": None, "taylor_check": None,
                 "no_safe_front": _explain_no_front(part, tool, safe_only)}
     arr = {k: [r[k] for r in rows]
            for k in ("mrr_cm3_per_min", "tool_life_min", "ra_um")}
@@ -201,7 +202,7 @@ def _explain_no_front(part: PartSpec, tool, safe_only: bool) -> dict:
         diag = diagnose(pred, sensor, target_ra_um=part.target_ra_um)
         if best is None:
             best = (point, pred, diag)
-        elif diag.state == "safe":
+        if diag.state == "safe":  # including the first candidate
             return {"reason": "search_missed_safe_point",
                     "note": ("the gate found no safe point, but one exists in "
                              "the envelope — rerun with a larger population"),

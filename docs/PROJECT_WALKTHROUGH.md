@@ -172,20 +172,23 @@ material, and fuzzy logic captures that gracefully.
 | R_a (µm) | 0.8 | 1.6 | 2.4 |
 | vibration RMS (g) | 0.8 | 1.5 | 2.2 |
 
-For each signal we compute two memberships:
-- **caution** — triangular, rising from `low` to `mid`
-- **critical** — trapezoidal, rising at `mid`, plateauing through
-  `high`, falling to zero at `1.4×high` (so very high values still
-  register as critical)
+For each signal we compute three memberships over the same bands:
+- **fresh** — falling from 1 at `low` to 0 at `mid`
+- **caution** — triangular, peaking between `low` and `mid`
+- **critical** — rising from 0 at `mid` to 1 at `high`, and staying
+  at 1 beyond (never released)
 
-The overall state is decided by the maximum rule:
-- `critical` wins if its peak membership ≥ 0.3 **and** ≥ caution
-- `caution` wins if it beats both critical and safe
-- otherwise `safe`
+Each signal votes for its strongest membership; the part's state is
+the worst vote across the three signals. That rule is monotone: raising
+any signal can only worsen the state, and there is no gap between the
+bands (an earlier floor rule - "critical needs membership >= 0.3" -
+left a hidden "safe" dead zone just above every mid threshold, which
+the stress test caught as "midpoint worse than envelope top").
 
 **Outputs:** a `FuzzyDiagnosis` with the chosen state, the three
-membership values, and a one-sentence explanation like
-*"state=caution; vibration RMS 1.85 g above caution threshold."*
+membership values, and a one-sentence explanation naming the driving
+signal, e.g.
+*"state=caution; vibration RMS 1.85 g in caution band."*
 
 **What the user sees:** three big metric cards in the **Diagnosis tab**
 (state, V_B, R_a), the explanation in an info box, the raw sensor

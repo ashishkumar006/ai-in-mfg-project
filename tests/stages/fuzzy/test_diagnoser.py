@@ -100,3 +100,50 @@ def test_clipped_extremes_stay_critical() -> None:
     vib = replace(vib, vibration_rms_g=99.0)
     diag = diagnose(_pred(v_b=0.05, ra=0.4), sensor=vib)
     assert diag.state == "critical"
+
+
+def test_no_safe_dead_zone_just_above_mid_thresholds() -> None:
+    from dataclasses import replace
+
+    # Regression: the old rule required the critical membership to
+    # reach 0.3, so values just past a mid threshold classified "safe".
+    assert diagnose(_pred(v_b=0.32, ra=0.4),
+                    thresholds=FuzzyThresholds()).state == "critical"
+    assert diagnose(_pred(v_b=0.05, ra=1.7),
+                    thresholds=FuzzyThresholds()).state == "critical"
+    vib = replace(
+        generate_synthetic_sensor(v_c=300.0, f=0.4, ap=3.0, seed=11),
+        vibration_rms_g=1.6,
+    )
+    diag = diagnose(_pred(v_b=0.05, ra=0.4), sensor=vib,
+                    thresholds=FuzzyThresholds())
+    assert diag.state == "critical"
+
+
+def test_state_is_monotone_in_each_signal() -> None:
+    from dataclasses import replace
+
+    rank = {"safe": 0, "caution": 1, "critical": 2}
+
+    def states(axis: str) -> list[str]:
+        out = []
+        for i in range(0, 140):
+            x = round(i / 40.0, 3)
+            if axis == "wear":
+                out.append(diagnose(_pred(v_b=x, ra=0.4),
+                                    thresholds=FuzzyThresholds()).state)
+            elif axis == "roughness":
+                out.append(diagnose(_pred(v_b=0.05, ra=x),
+                                    thresholds=FuzzyThresholds()).state)
+            else:
+                vib = replace(
+                    generate_synthetic_sensor(v_c=300.0, f=0.4, ap=3.0, seed=11),
+                    vibration_rms_g=x,
+                )
+                out.append(diagnose(_pred(v_b=0.05, ra=0.4), sensor=vib,
+                                    thresholds=FuzzyThresholds()).state)
+        return out
+
+    for axis in ("wear", "roughness", "vibration"):
+        ranks = [rank[s] for s in states(axis)]
+        assert ranks == sorted(ranks), f"state not monotone in {axis}: {ranks}"

@@ -237,9 +237,11 @@ than asserted:
   invents a fix.
 
 Also: `scripts/checks/bench_speed.py` reports per-stage latency
-(rules ~11 ms with the 50-insert clipspy catalog, predict ~0.7 ms,
-NSGA-II 24×12 ~166 ms; full pipeline ~177 ms) and search precision
-24/24 safe vs 90/288 = 31% for random sampling on equal budget).
+(rules ~8 ms with the 50-insert clipspy catalog, predict ~0.4 ms,
+NSGA-II 24×12 ~107 ms; full pipeline ~115 ms) and search precision
+24/24 safe vs 1/288 = 0.3% for random sampling on equal budget - the
+gate turns a needle-in-a-haystack search into a safe-by-construction
+front).
 
 ## 13. Deck-alignment round (clipspy, scikit-fuzzy, ISO 13399 catalog, spread)
 
@@ -281,4 +283,84 @@ importing the named libraries instead of private equivalents:
   the Taylor verdict; the browser Re-plan verdict is included in the
   exported JSON report.
 
-Verification after this round: `pytest` **162 passed**, `scripts/checks/check_web.py` 97/0 endpoint calls against the live server (ISO coverage of all 25 cells asserted directly), `scripts/checks/validate_pipeline.py` **0 failures** (675 + 2,048 invariants; the N/drilling envelopes sit in the 400-900 m/min band the checker knows), and `scripts/checks/stress_test.py 300` on the 50-insert catalog: **2,586 invariants passed, 0 failures** in 182 s (607 ms/part - slower than the minimum pipeline because all 300 parts now reach NSGA-II instead of skipping 44% of the grid). Coverage 300/300 matched; diagnosis distribution at the envelope midpoint 35.7% safe / 34.7% caution / 29.7% critical; trusted-model spread <= 0.127 mm (48/48 within 0.15); 0 dominated points; 0 unsafe points in safe-only fronts. 62 empty fronts all self-explain (41 no_safe_setting_exists, 21 search_missed_safe_point). 29 anomalies recorded: 'midpoint worse than envelope top' - worth a dedicated monotonicity test, not a correctness bug.
+Verification after this round: `pytest` **162 passed**, `scripts/checks/check_web.py` 97/0 endpoint calls against the live server (ISO coverage of all 25 cells asserted directly), `scripts/checks/validate_pipeline.py` **0 failures** (675 + 2,048 invariants; the N/drilling envelopes sit in the 400-900 m/min band the checker knows), and `scripts/checks/stress_test.py 300` on the 50-insert catalog: **2,586 invariants passed, 0 failures** in 182 s (607 ms/part - slower than the minimum pipeline because all 300 parts now reach NSGA-II instead of skipping 44% of the grid). Coverage 300/300 matched; diagnosis distribution at the envelope midpoint 35.7% safe / 34.7% caution / 29.7% critical; trusted-model spread <= 0.127 mm (48/48 within 0.15); 0 dominated points; 0 unsafe points in safe-only fronts. 62 empty fronts all self-explain (41 no_safe_setting_exists, 21 search_missed_safe_point). 29 anomalies recorded: 'midpoint worse than envelope top' - the follow-up round traced these to a real classifier dead zone; see section 14.
+
+
+## 14. Classifier dead-zone round (monotone states, honest empties, corner-seeded NSGA-II)
+
+Follow-up to the 29 "midpoint worse than envelope top" anomalies of
+section 13. All 29 reproduced deterministically with
+`scripts/checks/repro_anomalies.py` (now a pass/fail check) and all
+were group S, vibration-driven - e.g. STRESS-0002: midpoint vibration
+1.008 g came out `caution` while the top corner at 1.645 g came out
+`safe`. That is not noise; the classifier had a dead zone.
+
+**Root cause.** The old decision rule needed `critical` membership
+>= 0.3 to win, and computed `safe` as `1 - max(c, crit) - 0.5 *
+min(c, crit)`. Just above every mid threshold there was a step where
+critical was still below 0.3 but caution had already decayed, so the
+state fell back to "safe": wear 0.30-0.345 mm, vibration 1.5-1.71 g,
+Ra from target to 1.15x target. The state curve along one signal was
+safe -> caution -> safe -> critical. Two real consequences beyond the
+anomalies: the gate admitted points that are physically not safe
+(random sampling looked 31% safe), and `replan` could report a bogus
+"safe" resolution (a point with vibration 1.34 g, membership 0.457,
+passed the old cutoff).
+
+**Fixes.**
+
+1. `diagnoser._signal_severity` - max-membership per signal: `fresh`
+   falls low->mid, `caution` peaks in between, `critical` rises from
+   mid and is never released. The part's state is the worst vote over
+   the three signals. Monotone in every signal, no dead zones, and
+   exactly the membership weights callers already used for display.
+2. `diagnoser._explain` is now state-driven with an explicit critical
+   branch (the old fallback could describe a critical part with a
+   caution sentence).
+3. `optimize_pareto._explain_no_front`: an `elif` on the first probe
+   candidate (the envelope corner - where the P-group safe pocket
+   lives) meant a found-safe corner could still be reported as
+   `no_safe_setting_exists`. Now the first candidate can answer, so
+   `search_missed_safe_point` vs `no_safe_setting_exists` is honest.
+4. Empty fronts carry `hypervolume`/`spread`/`taylor_check` keys set
+   to `None`, matching what the docs promise.
+5. NSGA-II initial population seeds the eight envelope corners
+   (`_CornerLHS`) before the Latin-hypercube fill, so a safe pocket in
+   a corner cannot be missed by uniform sampling.
+
+**What we deliberately did not do.** Retune the vibration model.
+Its nominal full-cut point (200 m/min, 2 mm, 0.3 mm/rev) reads 1.8 g,
+already above the 1.5 g mid band - the mismatch between band table and
+sensor model is real, but rescaling it would ripple through every ANN
+input and every number in this document to make demos green. N-group
+(aluminium) parts therefore keep an honest empty front: the corner
+vibration of 1.5-1.6 g says no safe point exists, and the API says so.
+
+**Tests.** +5: two fuzzy regressions (dead-zone probe just above each
+mid threshold; monotone sweep along each signal), the replan safe-path
+test split into a genuine-safe scenario (S/turning at 220 HB) and an
+"improves honestly, not fully safe" scenario (P at 300 HB), and two
+tool tests (N part emits `no_safe_setting_exists` with `None` metrics;
+the corner probe reports `search_missed_safe_point` when the corner
+itself is safe). Suite: **167 passed** in 61 s.
+
+**Verification after this round** (same commands as section 13):
+
+- `check_web.py`: 97 endpoint calls, **0 failures** (server restarted
+  on the new code).
+- `validate_pipeline.py`: **0 failures**, 1,878 invariants (fewer than
+  section 13 because one sampled front is honestly empty now -
+  N/facing - and skipping its per-solution checks is by design; the
+  empty carries its reason).
+- `stress_test.py 300`: **2,607 invariants passed, 0 failures,
+  0 anomalies** ("midpoint worse than envelope top" went 29 -> 0) in
+  152 s (505 ms/part). Coverage 300/300. Midpoint distribution is now
+  honest: 18.0% safe / 31.0% caution / 51.0% critical. 231 fronts,
+  69 empty and all `no_safe_setting_exists` (0 search misses - the
+  corner seeding closed that gap). 0 dominated points, 0 unsafe
+  points in safe-only fronts. Stability 34/9/0 on the 40-part
+  production-budget sample.
+- `bench_speed.py`: rules ~8 ms, predict ~0.4 ms, NSGA-II 24x12
+  ~107 ms, full pipeline ~115 ms; search precision 24/24 safe vs
+  1/288 = 0.3% for random sampling - the gate now turns a
+  needle-in-a-haystack search into a safe-by-construction front.
