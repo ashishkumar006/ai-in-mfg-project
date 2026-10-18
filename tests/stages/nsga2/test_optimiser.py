@@ -15,7 +15,7 @@ from hybrid_ai.stages.nsga2.optimiser import (
 def _fitted_model() -> WearRoughnessModel:
     x, y = generate_synthetic_dataset(n_samples=400, seed=3)
     model = WearRoughnessModel()
-    model.fit(x, y, TrainConfig(epochs=20, hidden=(16, 16)))
+    model.fit(x, y, TrainConfig(epochs=60, hidden=(32, 32)))
     return model
 
 

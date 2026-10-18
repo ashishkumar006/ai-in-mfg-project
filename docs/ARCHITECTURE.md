@@ -38,7 +38,7 @@ Deliver a system that, given a part specification, can:
 
 - Reads a part spec (material ISO group, operation type, machine class).
 - Applies hand-authored rules to:
-  - Generate an operation sequence (CAPP).
+  - Generate an operation sequence and setup & fixturing plan (CAPP).
   - Filter eligible inserts by ISO material group and operation.
 - Outputs a ranked shortlist of candidate tools with their recommended
   speed/feed envelopes.
@@ -47,8 +47,10 @@ Deliver a system that, given a part specification, can:
 
 - Inputs: filtered tool + sensor features (FFT/RMS aggregates).
 - Outputs: predicted V_B and R_a for the candidate operating point.
-- Implemented as a small PyTorch MLP, with a scikit-learn baseline
-  for benchmarking.
+- Implemented as six trained tiers: the deployed blended MLP, the
+  reference CNN1D / CNN-LSTM nets, the PHM-2010 CNN-BiLSTM flagship,
+  a Vicomtech HGBR for turning, and a LUH HGBR for cast-iron milling
+  signals (force statistics + log contact time).
 
 ### Stage 3 — Fuzzy Logic (diagnosis)
 

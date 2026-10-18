@@ -24,6 +24,7 @@ from hybrid_ai.core.schemas import (
     WearPrediction,
 )
 from hybrid_ai.stages.fuzzy.diagnoser import FuzzyThresholds, diagnose
+from hybrid_ai.stages.nsga2.taylor import taylor_tool_life_min
 
 try:
     from pymoo.algorithms.moo.nsga2 import NSGA2
@@ -83,18 +84,29 @@ def mrr_cm3_per_min(point: OperatingPoint) -> float:
 
 
 def tool_life_min(point: OperatingPoint, v_b: float) -> float:
-    """Taylor-style inverse wear rate, clipped to a sensible range.
+    """Wear-derived life proxy: ``6.0 / V_B``, clipped to 1-240 min.
 
-    Treats V_B as a wear-rate proxy at this point. Calibrated so a
-    0.3 mm flank (the standard failure criterion) is reached in
-    ~20 min at the reference wear rate, then scaled inversely:
-    ``life = 6.0 / V_B``. Carbide inserts typically last 15–60 min
-    to 0.3 mm VB, which is exactly the band this produces for the
-    model's usual 0.1–0.4 mm predictions.
+    Treats the predicted V_B as a wear-rate proxy: a 0.3 mm flank (the
+    ISO failure criterion) corresponds to ~20 min. Kept as the
+    independent quantity the Taylor cross-check audits — the optimiser
+    itself uses :func:`life_objective` (handbook Taylor life) so a
+    biased ANN wear scale can no longer set the recommended life.
     """
     if v_b <= 1e-6:
         return 240.0
     return float(np.clip(6.0 / v_b, 1.0, 240.0))
+
+
+def life_objective(point: OperatingPoint, iso_group: str) -> float:
+    """Tool life in minutes from the extended Taylor equation.
+
+    Per-group ``(n, V0, T0)`` constants calibrated against handbook
+    bands (see ``taylor.py``): P ~ 20-35 min at 200-250 m/min,
+    S ~ 9 min at 70 m/min, N ~ 70 min at 600 m/min. Used as the Pareto
+    life objective; the ANN's wear scale feeds the safety gate and the
+    ``taylor_check`` cross-audit instead of setting life directly.
+    """
+    return taylor_tool_life_min(point, iso_group).tool_life_min
 
 
 def _predict_cached(model, tool, point: OperatingPoint, hardness_hb: float,
@@ -163,7 +175,7 @@ class _MillingProblem(_ProblemBase):  # type: ignore[misc]
             self.sensor_factory, self.cache,
         )
         mrr = mrr_cm3_per_min(point)
-        life = tool_life_min(point, pred.v_b_mm)
+        life = life_objective(point, self.tool.iso_group)
         out["F"] = np.array([-mrr, -life, pred.ra_um], dtype=float)
         if self.enforce_safe:
             diag = diagnose(pred, sensor, self.thresholds,
@@ -204,7 +216,7 @@ def _grid_fallback(
                 ):
                     continue
                 mrr = mrr_cm3_per_min(point)
-                life = tool_life_min(point, pred.v_b_mm)
+                life = life_objective(point, tool.iso_group)
                 solutions.append(
                     ParetoSolution(
                         point=point,
@@ -325,7 +337,7 @@ def optimise(
             solutions.append(                ParetoSolution(
                     point=point,
                     mrr_cm3_per_min=mrr_cm3_per_min(point),
-                    tool_life_min=tool_life_min(point, pred.v_b_mm),
+                    tool_life_min=life_objective(point, tool.iso_group),
                     ra_um=float(pred.ra_um),
                 )
             )

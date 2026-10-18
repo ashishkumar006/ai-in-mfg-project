@@ -146,11 +146,13 @@ def _front_spread(arr: dict) -> dict | None:
 
 
 def _taylor_check(part: PartSpec, tool, extremes: dict) -> dict:
-    """Compare the ANN's life estimates against the extended Taylor equation.
+    """Compare the ANN's wear-implied life against the Taylor objective.
 
-    The optimiser derives life from predicted flank wear (``6.0 / V_B``).
-    Taylor's equation is an independent physical model, so agreement
-    between the two is evidence the ANN's wear scale is sane — and
+    The optimiser's Pareto life objective is the extended Taylor
+    equation itself (per-group handbook constants). This check asks the
+    independent question of whether the ANN's predicted flank wear,
+    run through the wear-to-life proxy (``6.0 / V_B``), agrees with it.
+    Agreement is evidence the learned wear scale is sane — and
     disagreement is worth surfacing rather than hiding.
     """
     from hybrid_ai.stages.ann.model import predict_for_point

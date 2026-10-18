@@ -64,8 +64,7 @@ check("page loads app.js + css + plotly",
 js = get("/app.js").decode()
 for token in ["runPipeline", "plotly_click", "renderDiagnosis", "renderPareto",
               "exportReport", "runReplan", "/api/capp", "/api/pareto",
-              "/api/diagnose", "/api/replan",
-              "/api/compare", "/api/model_metrics", "/api/status",
+              "/api/diagnose", "/api/replan", "/api/status",
               "hypervolume", "spacing", "taylor_check", "paretoMetaHtml"]:
     check(f"js contains {token}", token in js)
 css = get("/styles.css").decode()
@@ -216,8 +215,14 @@ if re.get("alternative"):
 
 # 7. metrics table ----------------------------------------------------------
 rows = json.loads(get("/api/model_metrics"))["rows"]
-check("metrics has 5 models", {r["model"] for r in rows} ==
-      {"MLP", "CNN1D", "CNN-LSTM", "CNN-BiLSTM", "HGBR"}, str([r["model"] for r in rows]))
+names = {r["model"] for r in rows}
+check("metrics has all core models", names >=
+      {"MLP", "CNN1D", "CNN-LSTM", "CNN-BiLSTM", "HGBR", "HGBR (LUH milling)"},
+      str(sorted(names)))
+check("metrics rows are labelled", all(
+    ("eval" in r and "holdout" in r) or "error" in r for r in rows))
+check("metrics has a genuine holdout row",
+      any(r.get("holdout") is True for r in rows))
 bigm = next(r for r in rows if r["model"] == "CNN-BiLSTM")
 check("big metrics sane", bigm["rmse"] < 0.0444 and bigm["n"] == 2152,
       f"rmse={bigm.get('rmse')}")

@@ -30,6 +30,7 @@ from hybrid_ai.stages.ann.model import (
     WearRoughnessDL,
     WearRoughnessModel,
 )
+from hybrid_ai.stages.ann.luh_model import LUHMillingModel
 from hybrid_ai.stages.ann.vicomtech_model import VicomtechTurningModel
 from hybrid_ai.tools.errors import ToolError
 
@@ -44,6 +45,8 @@ _big: WearRoughnessDL | None = None
 _big_missing: bool = False
 _turning: VicomtechTurningModel | None = None
 _turning_missing: bool = False
+_luh: LUHMillingModel | None = None
+_luh_missing: bool = False
 _catalog: list | None = None
 _catalog_source: dict | None = None
 CATALOG_DB_PATH = ROOT / "data" / "processed" / "tool_catalog.sqlite"
@@ -173,6 +176,22 @@ def get_turning() -> VicomtechTurningModel | None:
     return _turning
 
 
+def get_luh() -> LUHMillingModel | None:
+    global _luh, _luh_missing
+    if _luh is None and not _luh_missing:
+        with _lock:
+            if _luh is None and not _luh_missing:
+                ckpt = MODELS_DIR / "luh_hgbr.joblib"
+                if ckpt.exists():
+                    try:
+                        _luh = LUHMillingModel.load(ckpt)
+                    except Exception:
+                        _luh_missing = True
+                else:
+                    _luh_missing = True
+    return _luh
+
+
 def resolve_tool(part, insert_code: str | None):
     """Return the requested insert, or the top-ranked CAPP pick.
 
@@ -250,3 +269,20 @@ def vicomtech_reference() -> tuple[np.ndarray, float, float]:
     x, y, _ = load_vicomtech(split="test")
     idx = int(np.argsort(y[:, 0])[len(y) // 2])
     return x[idx], float(y[idx, 0]), float(y[idx, 1])
+
+
+@functools.lru_cache(maxsize=1)
+def luh_reference() -> tuple[np.ndarray, float]:
+    """Median-wear LUH run's assembled feature row + true V_B.
+
+    The shipped checkpoint is refit on all nine tools after the 9-tool
+    leave-one-tool-out evaluation, so this reference row may be
+    in-sample; the honest metric is the LOTO number in
+    ``docs/luh_loto.json``.
+    """
+    from hybrid_ai.core.luh_loader import load_luh_features
+
+    x16, vb_mm, contact_s, _tools, _runs = load_luh_features()
+    idx = int(np.argsort(vb_mm)[len(vb_mm) // 2])
+    row = LUHMillingModel.assemble(x16[idx:idx + 1], contact_s[idx:idx + 1])[0]
+    return row, float(vb_mm[idx])

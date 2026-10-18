@@ -32,6 +32,7 @@ from hybrid_ai.stages.ann.model import (
     WearRoughnessDL,
     WearRoughnessModel,
 )
+from hybrid_ai.stages.ann.luh_model import LUHMillingModel
 from hybrid_ai.stages.ann.vicomtech_model import VicomtechTurningModel
 from hybrid_ai.stages.clips.rules import build_rules, rank_tools
 from hybrid_ai.core.nasa_loader import (
@@ -148,6 +149,17 @@ def get_turning() -> VicomtechTurningModel | None:
     if ckpt.exists():
         try:
             return VicomtechTurningModel.load(ckpt)
+        except Exception:
+            pass
+    return None
+
+
+@st.cache_resource(show_spinner="Loading LUH milling model...")
+def get_luh() -> LUHMillingModel | None:
+    ckpt = MODELS_DIR / "luh_hgbr.joblib"
+    if ckpt.exists():
+        try:
+            return LUHMillingModel.load(ckpt)
         except Exception:
             pass
     return None
@@ -388,7 +400,7 @@ def _header_section(part: PartSpec) -> None:
         st.markdown(
             '<div class="io-box">'
             '<strong>Predicted V_B and R_a</strong> — flank wear (mm) and surface '
-            'roughness (µm) for the chosen operating point, from four ANN models.'
+            'roughness (µm) for the chosen operating point, from five trained models.'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -416,9 +428,10 @@ def _header_section(part: PartSpec) -> None:
          "Reads the part spec and applies hand-authored rules to pick the right insert "
          "and generate a CAPP operation plan. Fast, deterministic, fully explainable."),
         ("2. ANN — wear and roughness prediction",
-         "Four PyTorch models (MLP, CNN1D, CNN-LSTM, and a 1M-parameter "
-         "CNN-BiLSTM trained on 6.5k PHM 2010 windows) predict flank wear "
-         "V_B and surface roughness R_a for any operating point."),
+         "Five trained models — MLP, CNN1D, CNN-LSTM, a 1M-parameter "
+         "CNN-BiLSTM trained on 6.5k PHM 2010 windows, and a "
+         "gradient-boosted HGBR for turning — predict flank wear "
+         "V_B and surface roughness R_a."),
         ("3. Fuzzy — machining state diagnosis",
          "Maps predicted V_B, R_a, and vibration RMS to a crisp state: safe, caution, "
          "or critical. Produces a one-sentence explanation."),
@@ -484,12 +497,31 @@ def _header_section(part: PartSpec) -> None:
             st.write("**Planner notes**")
             for n in notes:
                 st.write(f"- {n}")
+        setup = capp.get("setup")
+        st.subheader("Setup & fixturing")
+        if setup:
+            st.dataframe(
+                pd.DataFrame([
+                    {"item": "Workholding", "detail": setup["workholding"]},
+                    {"item": "Datums", "detail": setup["datums"]},
+                    {"item": "Clamping", "detail": setup["clamping"]},
+                    {"item": "Tool holding", "detail": setup["tool_holding"]},
+                ]),
+                width="stretch", hide_index=True,
+            )
+            st.write("**Setup sequence**")
+            st.write(pd.DataFrame({"step": setup["steps"]}))
+            for n in setup.get("notes", []):
+                st.write(f"- {n}")
+        else:
+            st.caption("No setup plan: no catalog insert matched the part spec.")
         st.download_button(
             "Download CAPP sheet (JSON)",
             data=json.dumps(
                 {
                     "part": part.__dict__,
                     "operations": operations,
+                    "setup": setup,
                     "candidates": capp["candidates"],
                     "selected": selected.to_dict(),
                     "envelope": envelope,
@@ -705,6 +737,7 @@ def _header_section(part: PartSpec) -> None:
                 ("CNN-LSTM", get_cnn_lstm()),
                 ("CNN-BiLSTM", get_phm_big()),
                 ("HGBR", get_turning()),
+                ("HGBR (LUH)", get_luh()),
             ]
             for name, m in _metric_models:
                 if m is None:
@@ -725,6 +758,14 @@ def _header_section(part: PartSpec) -> None:
                         x_eval, y_eval, _ = load_vicomtech(split="test")
                         m_eval = m.evaluate(x_eval, y_eval)
                         input_kind = "152 feats (Vicomtech tools)"
+                    elif name == "HGBR (LUH)":
+                        d = json.loads(
+                            (ROOT / "docs" / "luh_loto.json").read_text(encoding="utf-8")
+                        )
+                        v = d["variants"]["signals_logC"]
+                        m_eval = {"rmse": float(v["pooled_rmse_vb_mm"]),
+                                  "mae": float("nan"), "n": int(d["n_rows"])}
+                        input_kind = "17 feats (LUH, 9-tool LOTO)"
                     else:
                         if NASA_PATH.exists():
                             x_eval, y_eval = load_nasa_windows()
@@ -746,7 +787,8 @@ def _header_section(part: PartSpec) -> None:
                     metrics_rows.append({"Model": name, "Input": "—",
                                          "RMSE (V_B, mm)": f"err: {exc}",
                                          "MAE (V_B, mm)": "—", "N samples": 0})
-            st.dataframe(pd.DataFrame(metrics_rows), width="stretch", hide_index=True)
+            st.dataframe(pd.DataFrame(metrics_rows).fillna("—"),
+                         width="stretch", hide_index=True)
 
     with tab_explain:
         st.subheader("Pipeline trace")
@@ -764,6 +806,8 @@ def _header_section(part: PartSpec) -> None:
         "MLP: blended synthetic + NASA (11 features). "
         "CNN1D / CNN-LSTM: NASA raw windows (6×9000). "
         "CNN-BiLSTM: PHM 2010 windows (7×256). "
+        "HGBR: Vicomtech turning (152 features); HGBR (LUH): LUH milling "
+        "signals + log contact time (9-tool LOTO 0.0068 mm). "
         "Sources: data/raw/nasa_milling.parquet, data/raw/phm2010_highres.csv. "
         "Checkpoints: models/."
     )

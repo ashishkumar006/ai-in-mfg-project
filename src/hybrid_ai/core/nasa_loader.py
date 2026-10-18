@@ -70,17 +70,18 @@ def _safe_list(arr, *, clip: float = 20.0) -> np.ndarray:
     return out
 
 
-def _impute_ra(feed: float, vb: float) -> float:
+def _impute_ra(feed: float, vb: float, iso_group: str = "M") -> float:
     """Physics-based Ra proxy for NASA runs (no measured Ra column).
 
-    Theoretical roughness scales with feed^0.7; worn tools degrade
-    finish roughly linearly with VB. Coefficients chosen so typical
-    NASA feeds (0.25/0.5 mm/rev) map to 0.9-2.0 um, inside the fuzzy
-    thresholds (0.8/1.6/2.4).
+    Uses the same kinematic model as the synthetic generator
+    (:func:`hybrid_ai.core.synthetic.ra_model_um`): the cusp-height
+    floor from a 0.8 mm nose plus a wear term, scaled by the ISO
+    group's finishing multiplier. NASA's 0.25/0.5 mm/rev feeds read as
+    roughing finishes (a few µm), which is what they are.
     """
-    base = 1.15 * (max(feed, 0.05) / 0.3) ** 0.7
-    wear_term = 0.55 * max(vb, 0.0)
-    return float(max(0.25, min(5.5, base + wear_term)))
+    from hybrid_ai.core.synthetic import ra_model_um
+
+    return ra_model_um(feed, 0.8, vb, iso_group)  # type: ignore[arg-type]
 
 
 def _truncate(arr: np.ndarray, length: int = _WINDOW_LEN) -> np.ndarray:
@@ -228,7 +229,7 @@ def load_nasa_dataset(
         )
         rows.append(feature_vec)
         vb = float(row["VB"]) if not np.isnan(row["VB"]) else 0.0
-        ra = _impute_ra(float(row["feed"]), vb) if impute_ra else 0.0
+        ra = _impute_ra(float(row["feed"]), vb, iso_group) if impute_ra else 0.0
         targets.append([vb, ra])
 
     X = np.asarray(rows, dtype=np.float64)
@@ -240,7 +241,7 @@ def load_nasa_dataset(
             cache,
             X=X,
             y=y,
-            _cache_key=np.array(cache_key, dtype=object),
+            _cache_key=np.array(cache_key),
         )
 
     return X, y
@@ -351,7 +352,7 @@ def load_nasa_eval_set(
             ap_max_mm=max(1.0, doc * 1.3),
             description=f"Generic insert for NASA material {material_code}.",
         ))
-        labels.append([vb, _impute_ra(feed, vb)])
+        labels.append([vb, _impute_ra(feed, vb, iso_group)])
     return {
         "windows": np.asarray(windows, dtype=np.float64),
         "points": points,
@@ -466,7 +467,7 @@ def load_nasa_labeled_features(
         feed = float(row["feed"])
         vb = float(row["VB"])
         X.append([v_c, feed, float(row["DOC"]), 0.8, 0.0, *iso_onehot, hardness])
-        y.append([vb, _impute_ra(feed, vb)])
+        y.append([vb, _impute_ra(feed, vb, iso_group)])
         runs.append(int(row["run"]))
         cases.append(int(row["case"]))
 
@@ -554,7 +555,8 @@ def load_nasa_windows(
         stack = np.stack(channels)
         windows.append(stack)
         vb = float(row["VB"]) if not np.isnan(row["VB"]) else 0.0
-        ra = _impute_ra(float(row["feed"]), vb) if impute_ra else 0.0
+        iso_group = _MATERIAL_TO_ISO.get(int(row["material"]), "P")
+        ra = _impute_ra(float(row["feed"]), vb, iso_group) if impute_ra else 0.0
         targets.append([vb, ra])
 
     X = np.asarray(windows, dtype=np.float64)

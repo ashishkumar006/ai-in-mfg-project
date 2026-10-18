@@ -113,7 +113,7 @@ def test_no_safe_dead_zone_just_above_mid_thresholds() -> None:
                     thresholds=FuzzyThresholds()).state == "critical"
     vib = replace(
         generate_synthetic_sensor(v_c=300.0, f=0.4, ap=3.0, seed=11),
-        vibration_rms_g=1.6,
+        vibration_rms_g=FuzzyThresholds().vib_mid + 0.1,
     )
     diag = diagnose(_pred(v_b=0.05, ra=0.4), sensor=vib,
                     thresholds=FuzzyThresholds())

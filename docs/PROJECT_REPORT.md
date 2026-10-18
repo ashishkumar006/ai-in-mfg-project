@@ -10,7 +10,7 @@ solves it, what the numbers really mean, and how to reproduce everything.
 A CNC shop constantly answers three linked questions for every part:
 
 1. **How do I make it?** (process plan — the CAPP sheet: operations,
-   setups, inspections)
+   setup & fixturing, inspections)
 2. **With what tool?** (insert geometry + material grade + speed/feed/
    depth envelope for the workpiece at hand)
 3. **At what parameters?** (cutting speed, feed, depth of cut that trade
@@ -65,9 +65,9 @@ so any model can be swapped without touching the rest.
 - Reads the part spec (ISO group P/M/K/N/S, operation, machine class,
   hardness, target finish) and applies five hand-authored rules
   (`iso-match`, `operation-match`, `steel-finishing`,
-  `heavy-roughing`, `superalloy-cautious`) to a **15-insert catalog**
-  (`core/synthetic.py`) covering turning, facing, milling, drilling
-  and boring.
+  `heavy-roughing`, `superalloy-cautious`) to a **50-insert catalog**
+  (`assets/tool_catalog_iso13399.csv`) covering turning, facing, milling,
+  drilling and boring (a 15-insert built-in list is the fallback).
 - Returns an operation plan, ranked candidate inserts, the top pick,
   its speed/feed/depth envelope, and planner notes.
 - Real bugs found and fixed here: operation matching once leaked
@@ -82,11 +82,12 @@ Five trained predictors, each honest about its own training ground:
 
 | Model | Params | Trained on | Held-out result |
 |---|---|---|---|
-| MLP (blended) | 5,058 | Synthetic 1,200 + NASA-mapped 145 | RMSE 0.083 (1,345 holdout) |
-| CNN1D | 18.4M | NASA windows (145) | 0.069 in-sample |
-| CNN-LSTM | 73,955 | NASA windows (145) | 0.163 in-sample |
+| MLP (blended) | 5,058 | Synthetic 1,200 + NASA-mapped 145 | RMSE 0.154 mm (real-data scoreboard, 1,345 rows) |
+| CNN1D (legacy) | 18.4M | NASA windows (145) | 2.54 — worse than the 1.77 mean |
+| CNN-LSTM (legacy) | 73,955 | NASA windows (145) | 2.53 — worse than the 1.77 mean |
 | **CNN-BiLSTM (flagship)** | **1,000,579** | **PHM 2010 c1+c4 (4,344 windows)** | **0.017 on unseen cutter c6** |
 | HGBR (turning) | — | Vicomtech, 9 tools | 0.026 on unseen tools 15+16 |
+| HGBR (milling) | — | LUH/KIT, 6,418 runs | 0.007 on 9 unseen tools (9-tool LOTO) |
 
 The flagship (3 conv blocks + 2-layer BiLSTM-128 + attention) is the
 only deep net with a true held-out-tool test: RMSE 0.017 vs 0.044 for
@@ -98,7 +99,7 @@ support deep nets, and their tab says so.
 
 - Maps predicted V_B, R_a and vibration RMS through triangular/
   trapezoidal membership functions (thresholds V_B 0.15/0.30/0.45 mm,
-  R_a 0.8/1.6/2.4 µm, vibration 0.8/1.5/2.2 g) to
+  R_a 0.8/1.6/2.4 µm, vibration 1.0/1.7/2.4 g) to
   **safe / caution / critical** plus a one-sentence explanation and
   per-signal membership bars — the operator-readable layer ML alone
   never provides.
@@ -107,7 +108,8 @@ support deep nets, and their tab says so.
 
 - Searches Vc/feed/depth inside the selected tool's envelope for the
   non-dominated set over **max removal rate, max tool life
-  (calibrated 6.0/V_B ≈ 20 min to the 0.3 mm criterion), min R_a** (pymoo NSGA-II, grid fallback,
+  (extended Taylor, e.g. P ≈ 22 min at 200 m/min; the wear-derived
+  6/V_B stays as an independent cross-check), min R_a** (pymoo NSGA-II, grid fallback,
   deduplicated Pareto filter). The dashboard's killer interaction:
   **click any 3D Pareto point to diagnose that exact operating point**.
 
@@ -130,6 +132,8 @@ demo prints the suggested actions.
 | NUAA orthogonal | 234,902 rows → pooled 30,515 w. | Unified-pool experiment | train 8 exps / val 2 / test 2 |
 | Vicomtech turning | 2,054 segments, 13 tools | Turning HGBR | train 9 tools / val 2 / **test 2 tools** |
 | Haas VF-1 RUL | 968 cycles, 14 tools | RUL attempt (negative) | train 10 / val 2 / test 2 tools |
+| LUH milling (KIT) | 6,418 runs, 9 cutters | 9-tool LOTO HGBR (16 feat + logC) | leave-one-tool-out |
+| AISI 5140 turning | 9 measured runs | Zero-shot check of the deployed MLP | zero-shot (no split) |
 
  Splits are always grouped so overlapping windows or repeat
  measurements from one tool can never leak across train/val/test —
@@ -143,8 +147,11 @@ demo prints the suggested actions.
 
 - **Trust:** flagship 0.017 and turning HGBR 0.026 — unseen tools,
   multi-fold confirmed where it counts.
-- **Useful with limits:** MLP 0.083 (in-distribution holdout +
-  monotonicity checks; drives the optimiser well).
+- **Strongest real-data:** LUH milling LOTO 0.0068 mm (95 % of
+  variance, 9 unseen tools) — the 0.007–0.026 mm band is the
+  real-world headline.
+- **Useful with limits:** MLP 0.154 mm on the 1,345-row real-data
+  scoreboard (monotonic, always in range; drives the optimiser well).
 - **Decorative:** NASA CNN in-sample scores, demo single-point
   showdowns (n=1 illustrations).
 - **Documented negatives:** unified pooling (0.036 — specialist beats
@@ -162,10 +169,10 @@ demo prints the suggested actions.
 cd "C:\Users\AISHWARYA\Downloads\me project"
 $env:PYTHONPATH = "src"
 
-.\.venv\Scripts\python.exe -m pytest -q            # 151 tests
+.\.venv\Scripts\python.exe -m pytest -q            # 173 tests
 .\.venv\Scripts\python.exe -m hybrid_ai.dashboard.demo   # ~2 s showcase + demo_outputs/
-.\.venv\Scripts\python.exe scripts/checks/eval_models.py  # model scoreboard
-.\.venv\Scripts\python.exe scripts/checks/check_web.py    # 96 live endpoint checks (:8502)
+.\.venv\Scripts\python.exe scripts/checks/real_data_scoreboard.py  # model + dataset scoreboard
+.\.venv\Scripts\python.exe scripts/checks/check_web.py    # 97 live endpoint checks (:8502)
 ```
 
 | Frontend | URL | Notes |
@@ -182,7 +189,8 @@ Retrain anything: `scripts/training/train_phm_big.py`, `scripts/training/train_u
 ## 7. Limits and roadmap
 
 1. **More cutters, not more windows** — the single highest-leverage
-   upgrade (NUAA's nine are on disk; LUH/MATWI need disk + accounts).
+   upgrade (NUAA's nine are on disk; LUH's full 6,418 runs are now on
+   disk too; MATWI needs disk space).
 2. Haas RUL needs life-conditioning or many more lives before it
    earns a UI slot.
 3. Unified pooling needs domain conditioning to beat specialists.

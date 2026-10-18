@@ -285,6 +285,14 @@ label .hint { display: block; margin-top: 0.2rem; font-size: 0.76rem; }
   border-radius: 0 8px 8px 0; font-size: 0.82rem; color: var(--muted);
 }
 .note b { color: var(--accent); }
+.setup {
+  margin: 0.7rem 0; padding: 0.6rem 0.8rem;
+  border: 1px solid var(--accent); border-left: 4px solid var(--accent);
+  background: var(--panel2); border-radius: 8px; font-size: 0.86rem;
+}
+.setup .result-lead { color: var(--accent); }
+.setup table.data { margin: 0.35rem 0; }
+.setup ol { margin: 0.2rem 0 0.2rem 1.1rem; padding: 0; color: var(--muted); }
 .chipbtn.active { color: var(--text); border-color: var(--accent); background: var(--active-bg); }
 .panel-loading, .loading { opacity: 0.8; animation: softpulse 2s ease-in-out infinite; }
 @keyframes softpulse { 0%, 100% { opacity: 0.62; } 50% { opacity: 0.95; } }

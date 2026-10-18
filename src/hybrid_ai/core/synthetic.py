@@ -220,25 +220,45 @@ def build_default_tool_catalog() -> list[ToolCandidate]:
     return list(DEFAULT_TOOL_CATALOG)
 
 
+#: ISO-group wear-law coefficients ``(a, b, c)`` for
+#: ``V_B = a * (V_c/200)^b * (f/0.3)^c * (a_p/2)^0.3 * (HB/200)^0.6``.
+#: Ordered so stainless (M) wears fastest at a shared operating point,
+#: then steel (P), then cast iron (K). Superalloy (S) is anchored to
+#: handbook Inconel 718 life (minutes at 70-100 m/min, workable below
+#: ~50 m/min); aluminium (N) barely wears. Hardness now enters through
+#: the ``(HB/200)^0.6`` factor, so hard steel wears measurably faster
+#: than soft steel instead of both wearing identically.
+_BASELINE_COEFFICIENTS: dict[ISOMaterialGroup, tuple[float, float, float]] = {
+    "P": (0.18, 1.0, 0.7),
+    "M": (0.30, 1.0, 0.8),
+    "K": (0.13, 0.8, 0.6),
+    "N": (0.06, 0.5, 0.4),
+    "S": (4.8, 2.26, 0.9),
+}
+
+#: Plausible workpiece hardness ranges per ISO group (HB).
+_HARDNESS_RANGE: dict[ISOMaterialGroup, tuple[float, float]] = {
+    "P": (150.0, 320.0),
+    "M": (150.0, 250.0),
+    "K": (150.0, 250.0),
+    "N": (90.0, 170.0),
+    "S": (300.0, 420.0),
+}
+
+
 def _baseline_coefficients(iso_group: ISOMaterialGroup) -> tuple[float, float, float]:
-    """Approximate Taylor-law-ish coefficients per ISO group.
-
-    Returns (a, b, c) so that:
-        V_B ~ a * (V_c^b) * (f^c) * noise
-    with V_c and f normalised by 1.
-    """
-    table: dict[ISOMaterialGroup, tuple[float, float, float]] = {
-        "P": (0.18, 0.9, 0.7),
-        "M": (0.12, 1.0, 0.8),
-        "K": (0.10, 0.7, 0.6),
-        "N": (0.06, 0.5, 0.4),
-        "S": (0.20, 1.1, 0.9),
-    }
-    return table[iso_group]
+    """Wear-law coefficients (a, b, c) per ISO group; see the table."""
+    return _BASELINE_COEFFICIENTS[iso_group]
 
 
-def _roughness_model(iso_group: ISOMaterialGroup) -> float:
-    return {"P": 1.2, "M": 1.0, "K": 1.4, "N": 0.7, "S": 1.1}[iso_group]
+#: Finishing multiplier over the kinematic cusp-height floor.
+_RA_GROUP_MULT: dict[ISOMaterialGroup, float] = {
+    "P": 0.8,
+    "M": 1.4,
+    "K": 2.0,
+    "N": 0.5,
+    "S": 2.0,
+}
 
 
 def theoretical_ra_um(feed_mmpr: float, nose_radius_mm: float) -> float:
@@ -246,16 +266,30 @@ def theoretical_ra_um(feed_mmpr: float, nose_radius_mm: float) -> float:
 
     ``Ra = 1000 * f^2 / (32 * r)`` in µm: the cusp height left by a
     round nose of radius ``r`` advancing ``f`` per revolution. This is
-    the ideal lower bound (real finish is worse with wear and
-    vibration); the generator uses its *shape* normalised to the
-    nominal point, scaled by the empirical ISO base.
+    the ideal floor; real finish is worse (wear, built-up edge,
+    vibration), which :func:`ra_model_um` adds.
     """
     r = max(nose_radius_mm, 0.2)
     return float(np.clip(1000.0 * feed_mmpr ** 2 / (32.0 * r), 0.05, 12.0))
 
 
-#: Kinematic ratio at the nominal point (f=0.3, r=0.8): 0.3^2/0.8.
-_NOMINAL_KINEMATIC = 0.3 ** 2 / 0.8
+def ra_model_um(
+    feed_mmpr: float,
+    nose_radius_mm: float,
+    v_b_mm: float,
+    iso_group: ISOMaterialGroup,
+) -> float:
+    """Physics-based Ra proxy: kinematic floor + wear, group-scaled.
+
+    ``Ra = k_group * 1000 * f^2 / (32 r) + 0.5 * V_B`` clipped to
+    ``[0.2, 6.0]`` µm. The group multipliers widen the textbook floor
+    to measured magnitudes (Sumitomo: real ~1.5-3x theory for steel and
+    more for cast iron; a 1045 milling study measures ~0.9 µm at
+    0.2 mm/tooth for P). Shared by the synthetic generator and the NASA
+    loader so blended training sees one consistent Ra definition.
+    """
+    base = _RA_GROUP_MULT[iso_group] * theoretical_ra_um(feed_mmpr, nose_radius_mm)
+    return float(np.clip(base + 0.5 * max(v_b_mm, 0.0), 0.2, 6.0))
 
 
 def generate_synthetic_dataset(
@@ -282,17 +316,16 @@ def generate_synthetic_dataset(
         v_c = float(rng.uniform(tool.v_c_min_mpm, tool.v_c_max_mpm))
         f = float(rng.uniform(tool.f_min_mmpr, tool.f_max_mmpr))
         ap = float(rng.uniform(0.5, min(tool.ap_max_mm, 4.0)))
-        hardness = float(rng.uniform(150.0, 320.0))
+        hardness = float(rng.uniform(*_HARDNESS_RANGE[tool.iso_group]))
 
+        hb_factor = (hardness / 200.0) ** 0.6
         wear_norm = (v_c / 200.0) ** b * (f / 0.3) ** c * (ap / 2.0) ** 0.3
-        v_b = a * wear_norm * float(rng.normal(1.0, 0.08))
-        v_b = float(max(v_b, 0.02))
+        v_b = a * wear_norm * hb_factor * float(rng.normal(1.0, 0.08))
+        v_b = float(np.clip(v_b, 0.02, 1.5))
 
-        ra = _roughness_model(tool.iso_group) * (
-            (f ** 2 / max(tool.nose_radius_mm, 0.2)) / _NOMINAL_KINEMATIC
-        ) ** 0.7
+        ra = ra_model_um(f, tool.nose_radius_mm, v_b, tool.iso_group)
         ra *= float(rng.normal(1.0, 0.07))
-        ra = float(max(ra, 0.2))
+        ra = float(np.clip(ra, 0.2, 6.0))
 
         iso_onehot = [1.0 if code == tool.iso_group else 0.0 for code in iso_codes]
         rows.append(
@@ -336,9 +369,15 @@ def generate_synthetic_sensor(
     *,
     seed: int | None = None,
 ) -> SensorReading:
-    """Make a plausible sensor reading for an operating point."""
+    """Make a plausible sensor reading for an operating point.
+
+    Vibration is anchored to the NASA measured windows (table/spindle
+    RMS: median ~0.9 g, driven mainly by depth of cut, little feed and
+    spindle-speed dependence); current/acoustic/force keep the earlier
+    plausible shapes.
+    """
     rng = np.random.default_rng(seed)
-    vibration = 0.6 * (v_c / 200.0) + 0.8 * (ap / 2.0) + 0.4 * (f / 0.3)
+    vibration = 0.45 + 0.35 * (ap / 2.0) + 0.15 * (f / 0.3) + 0.20 * (v_c / 200.0)
     current = 4.0 + 2.0 * (v_c / 200.0) + 1.5 * (ap / 2.0)
     acoustic = 60.0 + 12.0 * (v_c / 200.0) + 4.0 * (f / 0.3)
     force = 250.0 * ap * f + 80.0 * (v_c / 200.0)

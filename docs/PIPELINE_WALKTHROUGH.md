@@ -5,6 +5,11 @@ needs before it becomes production-grade, and what the planned deep-
 learning upgrades will look like. No implementation is included in
 this document — it is a roadmap, not a todo list.
 
+> **Status note (final round).** This roadmap predates the deep-learning
+> rounds: CNN1D, CNN-LSTM and the PHM-2010 CNN-BiLSTM are now built,
+> trained and scored (see `PROJECT.md` §3 and `VALIDATION.md` §16).
+> Kept as the design rationale.
+
 ---
 
 ## 1. The current system — what works today
@@ -19,15 +24,15 @@ PartSpec  →  CLIPS (rules)  →  ANN (MLP)  →  Fuzzy  →  NSGA-II  →  Das
 
 **What each stage uses today:**
 
-- **CLIPS module** (`src/hybrid_ai/stages/clips/rules.py`) — pure Python rule
-  predicates: ISO match, operation match, steel-finishing, heavy-
-  roughing, superalloy-cautious. Selects from 15 hardcoded `ToolCandidate`
-  entries. No CLIPS engine is required; the rule interface mirrors CLIPS
-  syntax so a future swap to `clipsPy` is a one-file change.
+- **CLIPS module** (`src/hybrid_ai/stages/clips/rules.py`) — executed by a real
+  `clipspy` engine: ISO match, operation match, steel-finishing, heavy-
+  roughing, superalloy-cautious. Selects from the 50-insert ISO 13399
+  catalog.
 
 - **ANN module** (`src/hybrid_ai/stages/ann/model.py`) — PyTorch 2-layer MLP,
-  `(32, 32)` hidden, Adam optimiser, MSE loss, 60 epochs on 1 200
-  synthetic rows. Input is an 11-element vector: V_c, feed, ap, nose
+  `(64, 64)` hidden, 5,058 params, Adam optimiser, MSE loss, trained on
+  1,200 synthetic rows blended with 145 NASA-mapped rows and shipped as
+  `models/nasa_mlp.pt`. Input is an 11-element vector: V_c, feed, ap, nose
   radius, rake angle, 5-dim ISO one-hot, hardness. Outputs: V_B (mm)
   and R_a (µm), clipped to physical ranges.
 
@@ -38,7 +43,8 @@ PartSpec  →  CLIPS (rules)  →  ANN (MLP)  →  Fuzzy  →  NSGA-II  →  Das
 
 - **NSGA-II module** (`src/hybrid_ai/stages/nsga2/optimiser.py`) — pymoo
   NSGA-II searching V_c, feed, ap inside the tool's envelope. Objectives:
-  maximise MRR, maximise tool life (calibrated `6.0 / V_B`, ~20 min to criterion), minimise
+  maximise MRR, maximise tool life (extended Taylor; the wear-derived
+  `6.0 / V_B` stays as an independent cross-check), minimise
   R_a. Returns a non-dominated Pareto front. Grid-sweep fallback if pymoo
   is absent.
 

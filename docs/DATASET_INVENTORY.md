@@ -15,7 +15,7 @@ Fraunhofer FORDATIS, and direct paper links.
 | 2 | **QIT-CEMC (Nature 2025)** | **~340 GB raw** (68 files × 5M rows) | Vibration (3-axis), sound, force (3-axis), torque, images | Ti6Al4V | VB per cycle | figshare / GitHub |
 | 3 | **MU-TCM (Mondragon)** | **~50 GB estimated** | Force (3-axis), vibration (3-axis), AE, internal CNC signals | Cast iron, stainless steel | VB per experiment | eBiltegia / Zenodo |
 | 4 | **LUH Multivariate TS (Mendeley)** | **12 GB** (6,418 files) | Force (25 kHz), torque, position control deviation (500 Hz) | Cast iron 600-3/S | VB 0–150 µm per run | Mendeley / HuggingFace |
-| 5 | **PHM 2010 Challenge** | **~2–5 GB** (~945 cuts × 50 kHz) | Force (3-axis), vibration (3-axis), AE | TC4 / GH (Ti + superalloy) | VB per flute per cut | PHM Society / Kaggle |
+| 5 | **PHM 2010 Challenge** | **~2–5 GB** (~945 cuts × 50 kHz) | Force (3-axis), vibration (3-axis), AE | Stainless steel (≈ HRC 52) | VB per flute per cut | PHM Society / Kaggle |
 
 ---
 
@@ -38,6 +38,7 @@ Fraunhofer FORDATIS, and direct paper links.
 | 11 | **NASA Milling** | 167 runs, 6 sensor channels | Already downloaded. Good for MLP, too small for CNN-LSTM scratch training. |
 | 12 | **Inconel-625 Turning (Mendeley)** | 27 runs, 382M samples | Turning-specific, huge per-run but few runs. Needs heavy subsampling. |
 | 13 | **CNC turning roughness (Kaggle)** | ~few hundred rows | Turning, forces + roughness + VB. Compact. |
+| 14 | **AISI 5140 turning (Sensors 2020, PMC7472038)** | 9 runs (L9 Taguchi) | Turning, **measured VB + stylus Ra** + force/AE/temp/current summaries. Small but the only external check with measured Ra. |
 
 ---
 
@@ -50,10 +51,11 @@ Fraunhofer FORDATIS, and direct paper links.
 | NUAA orthogonal (uniwear bundle) | ✅ Downloaded (57 MB CSV, for future work) | `data/raw/nuaa_highres.csv` |
 | Vicomtech turning (2,054 segments, 13 tools) | ✅ Downloaded (3.3 MB CSV) | `data/raw/vicomtech_turning.csv` |
 | Haas VF-1 RUL (968 cycles, 14 tools, 42CrMo4 steel) | ✅ Downloaded (1.8 MB features) | `data/raw/haas_features.csv` |
+| AISI 5140 turning (9 runs, measured VB + Ra) | ✅ Transcribed (Table 4 of PMC7472038) | `data/raw/aisi5140_turning.csv` |
+| LUH Multivariate (KIT) | ✅ Full downloaded (6,418 files / 10.6 GB; helper `scripts/checks/download_luh_subset.py` can also fetch a lighter every-4th mirror) | `data/raw/luh_milling/{filelist.csv,h5/}` |
 | MATWI | ❌ Not downloaded | 17.7 GB |
 | QIT-CEMC | ❌ Not downloaded | ~340 GB raw |
 | MU-TCM | ❌ Not downloaded | ~50 GB |
-| LUH Multivariate | ❌ Not downloaded | 12 GB |
 | Others | ❌ Not downloaded | Various |
 
 ---
@@ -83,11 +85,12 @@ For **transfer learning**, the recipe becomes:
 | Priority | Dataset | Size | Time to download (50 Mbps) | Why |
 |---|---|---|---|---|
 | 1 | PHM 2010 | ~3 GB | ~8 min | Best bang/buck for pre-training. Industry standard benchmark. |
-| 2 | LUH Multivariate | 12 GB | ~30 min | Bigger than PHM2010, multimodal (force + control signals). |
+| 2 | LUH Multivariate | 10.6 GB (full) | ~30 min | Bigger than PHM2010, multimodal (force + control signals). **Full data downloaded + wired: 9-tool LOTO RMSE 0.0068 mm, `docs/VALIDATION.md` §16, checkpoint `models/luh_hgbr.joblib` (refit on all 9 tools).** |
 | 3 | MU-TCM | ~50 GB | ~2.5 hours | Latest (2025), includes internal CNC signals. |
 | 4 | QIT-CEMC | ~340 GB | ~17 hours | Massive, but Ti6Al4V-specific. Only if you need Inconel/Ti transfer. |
 | 5 | MATWI | 17.7 GB | ~45 min | Multimodal with images. Good for image+signal fusion. |
 
-For the project report, downloading PHM 2010 (+ maybe LUH) is enough to
-say "we pre-trained on 50k+ windows from public benchmarks and
-fine-tuned on NASA."
+For the project report: PHM 2010 is pulled and wired (50k+ windows at
+the cut level), and LUH is now wired end-to-end as well (subset
+download → featuriser → 9-tool LOTO), so the "public benchmarks"
+claim holds with measured numbers.

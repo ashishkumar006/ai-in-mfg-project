@@ -1,6 +1,6 @@
 ﻿# Validation
 
-Held-out metrics for the four ANN models and the NSGA-II front.
+Held-out metrics for the six trained models and the NSGA-II front.
 Reproduce with `notebooks/colab_train.py` and
 `src/hybrid_ai/dashboard/demo.py`.
 
@@ -10,12 +10,18 @@ Reproduce with `notebooks/colab_train.py` and
 - After dropping 21 NaN-VB rows + 1 corrupted record (case 2 run 1,
   sensor amplitudes ~1e34): **145 clean runs**.
 - VB range 0.00–1.53 mm, mean 0.34 mm.
-- Ra is not measured in NASA; imputed as
-  `1.15·(feed/0.3)^0.7 + 0.55·VB`, clipped to [0.25, 5.5] —
-  mean 1.49 µm, range 1.01–2.27 µm.
+- Ra is not measured in NASA (or in any wired real dataset); it is
+  imputed through the shared physics model
+  `ra_model_um = clip(mult·1000·f²/(32·r) + 0.5·VB, 0.2, 6.0)` with
+  ISO-group multipliers P 0.8 / M 1.4 / K 2.0 / N 0.5 / S 2.0.
+  At NASA's roughing feeds (0.25 / 0.5 mm/rev) this gives mean
+  4.98 µm, range 3.42–6.00 µm (clipped) — roughing territory, not
+  the old optimistic 1.0–2.3 µm band. See round 15.
 - Synthetic generator (`core/synthetic.py`): Taylor-style
-  `V_B = a·(Vc/200)^b·(f/0.3)^c·(ap/2)^0.3`, 1,200 rows, VB mean
-  0.11 mm, Ra mean 0.84 µm.
+  `V_B = a(B)·(Vc/200)^b·(f/0.3)^c·(ap/2)^0.3` with per-material
+  coefficients and a hardness factor `(HB/200)^0.6`, VB clipped to
+  [0.02, 1.5]; 1,200 rows, VB mean 0.15 mm (range 0.03–0.93), Ra
+  mean 2.35 µm (range 0.2–6.0). See round 15.
 - PHM 2010 high-res tidy mirror: `data/raw/phm2010_highres.csv`
   (12 MB, public, no login), 104,675 rows at ~25 Hz, 7 sensor
   channels, cutters c1 / c4 / c6 with per-row VB labels in mm.
@@ -28,14 +34,21 @@ Reproduce with `notebooks/colab_train.py` and
 
 | Model | Input | Train data | RMSE | MAE | N |
 |---|---|---|---|---|---|
-| MLP (64,64), 120 epochs | 11 features (blended) | synthetic 1,200 + NASA-mapped 145 | 0.082 | 0.044 | 1,345 |
-| CNN1D, 25 epochs | 6×9000 raw windows | NASA 145 | 0.069 | 0.048 | 145 |
-| CNN-LSTM (64×2), 20 epochs | 6×9000 raw windows | NASA 145 | 0.163 | 0.117 | 145 |
+| MLP (5,058 params), shipped | 11 features (blended) | synthetic 1,200 + NASA-mapped 145 | 0.154 | 0.086 | 1,345 |
+| CNN1D, 25 epochs (legacy) | 6×9000 raw windows | NASA 145 | 2.538 | 1.772 | 145 |
+| CNN-LSTM, 20 epochs (legacy) | 6×9000 raw windows | NASA 145 | 2.528 | 1.769 | 145 |
 | **CNN-BiLSTM (128×2 bidir, GroupNorm), 25 epochs** | **7×256 PHM windows** | **PHM c1+c4 (4,344)** | **0.018** | **0.013** | **2,152 held-out c6** |
 | CNN-BiLSTM (same, early-stopped on non-overlapping val) | 7×256 PHM | c1+c4 minus val | 0.017 | 0.013 | 2,152 held-out c6 |
 | CNN-BiLSTM (3ch) on pooled PHM+NUAA (21k train / 6.4k val) | 3×256 shared-ch | 8 exps | 0.036 | 0.026 | 3,000 (c6 0.024, W9 0.055) |
 | HGBR (turning-native, 152 feats) | Vicomtech segments | 9 tools (1,671 segs) | 0.026 | 0.015 | 383 segs, unseen tools 15+16 |
 | Synthetic-only MLP (demo) | 11 features | synthetic 1,200 | 0.040 | 0.024 | 240 holdout |
+
+Table notes: the shipped-MLP row is the mixed VB+Ra RMSE on the eval
+blend (training distribution, optimistic); the honest per-target and
+true-holdout numbers live in rounds 15–16. The CNN1D / CNN-LSTM
+values are what the *shipped* checkpoints score on the same 145
+windows they trained on (memorised, and badly so) — they are kept for
+history and superseded by the CNN-BiLSTM.
 
 CNN-BiLSTM detail (1.00M params, ~14× the old CNN-LSTM's 74k):
 with early stopping on a non-overlapping val subset + weight decay
@@ -146,8 +159,11 @@ physical clips (V_B 0.02–1.5, R_a 0.2–6.0).
 - Example front (CNMG120408-PM, pop 20 × 10 gen): 20 solutions,
   tool-life range 0.77–3.13 min (previously flat 0.5 min due to
   clipped V_B = 1.5 mm).
-- Tool life is now calibrated to real inserts (`6.0 / V_B`, ~20 min
-  to the 0.3 mm criterion): current demo front spans 15–79 min.
+- Tool life is now the extended Taylor equation (per-group handbook
+  constants, `taylor.py`) as the Pareto life objective; the wear-derived
+  proxy (`6.0 / V_B`) stays as the independent cross-check the
+  `taylor_check` field audits. Handbook anchors: P ~ 20-35 min at
+  200-250 m/min, S ~ 9 min at 70 m/min, N ~ 70 min at 600 m/min.
 - `enforce_safe` (default off in the library, on in both dashboards)
   constrains the search to fuzzy-safe points via a pymoo inequality
   plus a guaranteed post-filter; small-budget runs may return an
@@ -155,11 +171,17 @@ physical clips (V_B 0.02–1.5, R_a 0.2–6.0).
 
 ## 6. Tests
 
-- `pytest`: **162 passed** (incl. safe-only fronts, tolerance-relative
-  fuzzy, MC uncertainty, measured-sensor, kinematic-Ra tests).
+- `pytest`: **178 passed** (incl. safe-only fronts, tolerance-relative
+  fuzzy, MC uncertainty, measured-sensor, kinematic-Ra tests, the
+  LUH HGBR assemble/save-load roundtrip, and the per-operation
+  setup & fixturing plan).
 - Extra verification (`verify_all.py` logic): synthetic scale,
   milling-only selection, NASA shapes/Ra, MLP monotonicity,
   Pareto dedup + ap cap + life variation — all pass.
+- Current end-to-end numbers (`pytest`, `check_web.py`,
+  `validate_pipeline.py`, `stress_test.py 300`) are tabulated in
+  `docs/PROJECT.md` §6; the per-round blocks below record what each
+  round measured at the time.
 
 ## 9. Improvement round (fuzzy-gated Pareto, calibrated life, uncertainty)
 
@@ -288,6 +310,11 @@ Verification after this round: `pytest` **162 passed**, `scripts/checks/check_we
 
 ## 14. Classifier dead-zone round (monotone states, honest empties, corner-seeded NSGA-II)
 
+> **Partly superseded by round 15.** The vibration bands and the
+> diagnosis distribution changed in the physics-realism pass; this
+> section is kept as the record of the dead-zone fix itself (the
+> monotone rule and corner seeding remain current).
+
 Follow-up to the 29 "midpoint worse than envelope top" anomalies of
 section 13. All 29 reproduced deterministically with
 `scripts/checks/repro_anomalies.py` (now a pass/fail check) and all
@@ -364,3 +391,126 @@ itself is safe). Suite: **167 passed** in 61 s.
   ~107 ms, full pipeline ~115 ms; search precision 24/24 safe vs
   1/288 = 0.3% for random sampling - the gate now turns a
   needle-in-a-haystack search into a safe-by-construction front.
+
+## 15. Physics-realism round (generator, roughness, vibration, Taylor)
+
+Demo plausibility failures (all six materials producing the same wear,
+aluminium that could never be cut, a 240-minute "tool life") traced to
+the synthetic physics layers, not the classifiers. Five fixes:
+
+1. **Generator coefficients** (`core/synthetic.py`): per-material
+   (a, b, c) — P (0.18, 1.0, 0.7), M (0.30, 1.0, 0.8), K (0.13, 0.8,
+   0.6), N (0.06, 0.5, 0.4), S (4.8, 2.26, 0.9) — plus a hardness
+   factor `(HB/200)^0.6`; VB clipped to [0.02, 1.5]. Hardness now
+   moves VB 2.2× over HB 120→380 (was ~1.0×, i.e. no effect).
+2. **Roughness** (`ra_model_um`): the old additive term became the
+   nose-radius form `clip(mult·1000·f²/(32·r) + 0.5·VB, 0.2, 6.0)`
+   with the ISO multipliers above. NASA `_impute_ra` calls the same
+   function (iso-aware at all four call sites), so labels and
+   generator agree by construction. Consequence: N-group (aluminium)
+   is no longer permanently "unsafe" — its Pareto front exists now.
+3. **Vibration proxy** anchored to the NASA windows it mimics
+   (`scripts/checks` vib stats: median ~0.92 g, 0.30–2.01,
+   DOC-driven): `0.45 + 0.35·(ap/2) + 0.15·(f/0.3) + 0.20·(Vc/200)`.
+4. **Fuzzy bands follow** (`diagnoser.py`): vibration mid/high
+   1.0/1.7 (critical 2.4) instead of 0.8/1.5/2.2, so the safe→
+   caution crossover (~1.23) sits inside the anchored distribution;
+   VB stays 0.20/0.30 mm and Ra 0.67·target/target.
+5. **Tool life** (`stages/nsga2/taylor.py`): a real extended-Taylor
+   objective now drives NSGA-II — (n, V0, T0): P (0.25, 200, 10),
+   M (0.25, 150, 7), K (0.25, 180, 10), N (0.28, 600, 30),
+   S (0.30, 60, 5) — e.g. P at 200 m/min → 21.9 min, S at 60 → 5.8
+   min. The old wear-derived `6/VB` survives only as the cross-check
+   in `_taylor_check`. Feed now moves predicted life honestly
+   (P: ~50 min at the slow end → ~7 min at 300 m/min).
+
+Retrain + re-audit (`scripts/checks/model_audit.py`,
+`scripts/training/heldout_nasa.py`): blended MLP retrained on the new
+data (1,345 rows, 11 features). The numbers moved in the honest
+directions: synthetic holdout RMSE_VB 0.030 / RMSE_Ra 0.206 (richer
+task; intrinsic noise floor 0.012); NASA leave-one-run-out 0.2496 vs
+0.2596 train-mean baseline (≈ unchanged — the fixes were realism,
+not NASA skill; NASA's inputs stay crippled and are a deferred
+re-featurisation item); a synthetic-only model scored on the NASA
+runs improved 0.325 → 0.263, i.e. the shared physics now transfers
+better even though the in-domain ceiling is unmoved.
+
+Verification after this round: `pytest` **167 passed**;
+`check_web.py` 97 calls / 0 failures against the restarted server;
+`validate_pipeline.py` **0 failures** (1,876 invariants — the count
+drifts a little with which sampled fronts are honestly empty).
+
+## 16. Real-data scoreboard (all datasets, one table)
+
+Every trained model scored on genuinely unseen real data in ~15 s by
+`scripts/checks/real_data_scoreboard.py` (no training; the LUH row
+reads the 9-fold LOTO artifact `docs/luh_loto.json` produced by
+`scripts/training/luh_loto.py`). Two-target
+models (VB mm + Ra µm) are scored the way the pipeline scores them —
+one mixed-unit RMSE — so each row is comparable to its own baseline
+column only.
+
+| Dataset (real) | Model | Held out | N | RMSE | Baseline | Skill |
+|---|---|---|---|---|---|---|
+| Synthetic+NASA blend | MLP (shipped, 11 feat) | no | 1,345 | 0.154 | — | training dist. |
+| NASA runs (LORO) | MLP (shipped, 11 feat) | yes | 145 | 0.2496 | 0.2596 | 8% |
+| NASA windows | CNN1D (legacy) | no, memorised | 145 | 2.538 | — | broken |
+| NASA windows | CNN-LSTM (legacy) | no, memorised | 145 | 2.528 | — | broken |
+| PHM 2010 cutter c6 | CNN-BiLSTM (7ch) | yes | 2,152 | 0.0171 | 0.0444 | 85% |
+| Vicomtech tools 15+16 | HGBR (152 feat) | yes | 383 | 0.0257 | 0.0655 | 85% |
+| PHM+NUAA pooled (c6+W9) | CNN-BiLSTM (3ch) | yes | 3,000 | 0.0358 | 0.0403 | 21% |
+| Haas tools 9+105 (RUL) | GRU | yes | 274 | 53.3 cyc | 55.9 cyc | 9% |
+| LUH milling (9-tool LOTO) | HGBR (16 feat+logC) | yes | 6,418 | 0.0068 | 0.0302 | 95% |
+| AISI 5140 turning (L9) | MLP (shipped, 11 feat) | zero-shot | 9 | 0.525* | 1.142 | 79%* |
+
+Skill = 1 − (RMSE/baseline)², baseline = per-target train-mean
+predictor (same mixed-metric definition as the models). LUH and NASA
+rows are VB-only; Haas is in cycles.
+
+\* AISI: mixed-unit RMSE against the MLP's training mean. The honest
+reference is the test-mean constant (0.379 mixed; VB 0.204 mm / Ra
+0.496 µm) — the zero-shot MLP loses to it, with all nine VB values
+under-predicted. The 79% is an artifact of the badly-centred training
+mean; the detail block in the scoreboard prints the decomposition.
+
+Honest reading:
+
+- LUH is the strongest real-data result and the first with 9 fully
+  unseen *milling* tools over the whole life (VB 3→160 µm): pooled
+  LOTO RMSE 0.0068 mm on the full 6,418-run set — at the label noise
+  floor (VB measured every ~40 runs, linearly interpolated, ±5 µm; the
+  4× smaller every-4th-run subset had scored 0.0074, so more data
+  moved the number by less than the label noise). Signals-only reaches
+  0.0119 mm, already beating the logC-only linear trend (0.0167) —
+  the force/control features carry wear-state information beyond
+  time. Caveats: tools T4–T6 have machine-side signal aliasing,
+  T7–T8 a rotated coordinate system; HGBR tier, not the deep models.
+  The shipped checkpoint `models/luh_hgbr.joblib` refits the same
+  recipe on all nine tools (`scripts/training/train_luh_hgbr.py`);
+  the 9-tool LOTO above remains its honest metric.
+- AISI 5140 is the first external check with *measured* Ra: the
+  zero-shot params-only MLP fails as designed (no wear-state input),
+  and the roughness sub-model with true VB given (0.650 µm RMSE)
+  still misses the feed-independent Ra floor real turning shows
+  (0.496 µm spread). Nine rows; directional evidence, not a
+  benchmark.
+- Where real sensor data is rich and the schema fits (PHM,
+  Vicomtech, LUH), the pipeline is genuinely accurate: **0.007–0.026
+  mm RMSE ≈ 4–17 % of the measured wear range** (~85–94 % of
+  variance explained). That is the real-world headline — not the
+  NASA row.
+- The deployed MLP's only real parameter-domain is NASA, where it
+  is still ≈ the mean: round 15 changed physics realism, not NASA's
+  feature collapse (constant Vc, 2 feeds, 2 DOC levels). Honest
+  backlog item, not a re-run fix.
+- Ra is imputed in every real dataset **except AISI 5140's nine
+  measured rows** (above); all other real-data scores are
+  VB-dominated, and Ra realism is literature-anchored instead
+  (rounds 12 and 15).
+- Caveats to quote: PHM c6 windows overlap in time (stride 16 over
+  a smooth wear trajectory), so 0.017 is within-cutter tracking;
+  cross-cutter from-scratch transfer is 0.027–0.036
+  (`scripts/training/transfer_proof.py`). The CNN-BiLSTM carries a
+  +0.005 mm bias — under-prediction, the safety-wrong direction,
+  but tiny. The CNN1D / CNN-LSTM tiers are legacy and effectively
+  broken; retire rather than quote them.

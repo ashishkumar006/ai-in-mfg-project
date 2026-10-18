@@ -219,3 +219,55 @@ def test_notes_branches_and_empty_catalog() -> None:
     assert selected is None and envelope is None and cands == []
     assert any("no catalog tool" in n.lower() for n in notes)
     assert ops
+
+
+def test_setup_plan_workholding_by_operation() -> None:
+    from hybrid_ai.stages.clips.rules import build_capp_sheet, build_setup_plan
+
+    catalog = build_default_tool_catalog()
+
+    def plan_for(operation: str, **kwargs) -> dict:
+        part = _spec(operation=operation, **kwargs)
+        _, _, selected, _, _ = build_capp_sheet(part, catalog)
+        assert selected is not None, f"no tool for {operation}"
+        return build_setup_plan(part, selected)
+
+    milling = plan_for("milling")
+    assert "vise" in milling["workholding"].lower()
+    turning = plan_for("turning")
+    assert "chuck" in turning["workholding"].lower()
+    assert turning["setup_count"] == 1
+    assert plan_for("facing")["setup_count"] == 2
+    assert "bushing" in plan_for("drilling")["workholding"].lower()
+    assert "boring" in plan_for("boring")["tool_holding"].lower()
+
+    for plan in (milling, turning, plan_for("drilling"), plan_for("boring")):
+        assert plan["steps"] and plan["setup_count"] >= 1
+        assert plan["datums"] and plan["clamping"] and plan["tool_holding"]
+        assert plan["operation"] and plan["machine_class"] == "medium"
+        assert isinstance(plan["notes"], list)
+
+
+def test_setup_plan_notes_and_selected_insert() -> None:
+    from hybrid_ai.stages.clips.rules import build_capp_sheet, build_setup_plan
+
+    catalog = build_default_tool_catalog()
+    part = _spec(operation="turning", iso_group="S", machine="heavy",
+                 target_ra_um=0.8)
+    _, _, selected, _, _ = build_capp_sheet(part, catalog)
+    assert selected is not None
+    plan = build_setup_plan(part, selected)
+    assert selected.insert_code in plan["tool_holding"]
+    joined = " ".join(plan["notes"]).lower()
+    assert "superalloy" in joined
+    assert "heavy" in joined
+    assert "spring pass" in joined
+    assert plan["machine_class"] == "heavy"
+
+
+def test_setup_plan_without_tool() -> None:
+    from hybrid_ai.stages.clips.rules import build_setup_plan
+
+    plan = build_setup_plan(_spec(operation="milling"), None)
+    assert plan["steps"]
+    assert "selected insert" in plan["tool_holding"]

@@ -57,6 +57,10 @@ def test_select_tool_match_and_no_match() -> None:
     hit = select_tool.run(_part(operation="drilling"))
     assert hit["selected"]["insert_code"] == "SDMX090308-P2"
     assert hit["envelope"] is not None
+    setup = hit["setup"]
+    assert setup["operation"] == "drilling"
+    assert "bushing" in setup["workholding"].lower()
+    assert setup["steps"] and setup["datums"] and setup["clamping"]
 
 
 def test_select_tool_no_match_on_pared_catalog(monkeypatch) -> None:
@@ -69,6 +73,7 @@ def test_select_tool_no_match_on_pared_catalog(monkeypatch) -> None:
     monkeypatch.setattr(_models, "get_catalog", lambda: list(mini))
     miss = select_tool.run(_part(iso_group="S", operation="drilling"))
     assert miss["selected"] is None
+    assert "setup" not in miss
     assert miss["no_match"]["per_rule"] and miss["no_match"]["closest"]
 
 
@@ -97,12 +102,17 @@ def test_optimize_pareto_safe_only() -> None:
 
 
 def test_no_safe_front_explains_itself_honestly() -> None:
-    """An aluminium part whose whole envelope is unsafe must report
+    """A part whose whole envelope is unsafe must report
     ``no_safe_setting_exists``, not a search miss, and the empty path
-    must still carry the metric keys."""
+    must still carry the metric keys.
+
+    The case: a 0.3 um finish asked of an insert whose minimum feed
+    (0.15 mm/rev, 0.8 mm nose) already leaves ~0.7 um of kinematic
+    cusp height — no feed in the envelope can pass the Ra gate.
+    """
     from hybrid_ai.tools import optimize_pareto
 
-    part = _part(iso_group="N", hardness_hb=150.0)
+    part = _part(target_ra_um=0.3)
     out = optimize_pareto.run(part, pop_size=8, n_generations=3)
     assert out["solutions"] == []
     nsf = out["no_safe_front"]
@@ -146,6 +156,13 @@ def test_model_benchmarks_structure() -> None:
 
     rows = catalog.run_benchmarks()["rows"]
     assert {r["model"] for r in rows} >= {"MLP", "CNN-BiLSTM", "HGBR"}
+    for r in rows:
+        if "error" in r:
+            continue
+        assert isinstance(r.get("holdout"), bool), f"{r['model']} has no holdout flag"
+        assert r.get("eval"), f"{r['model']} has no eval label"
+    assert any(r.get("holdout") is True for r in rows), "needs a genuine holdout row"
+    assert any(r.get("holdout") is False for r in rows), "train-set rows must be labelled"
 
 
 def test_capp_matrix_selected_xor_explained() -> None:

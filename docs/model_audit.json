@@ -1,0 +1,159 @@
+{
+  "datasets": {
+    "synthetic_rows": 1200,
+    "nasa_rows_used": 145,
+    "nasa_raw_rows": 146,
+    "nasa_runs": 23,
+    "nasa_materials": {
+      "1": 98,
+      "2": 48
+    },
+    "nasa_feed_range": [
+      0.25,
+      0.5
+    ],
+    "nasa_doc_range": [
+      0.75,
+      1.5
+    ],
+    "nasa_vb_dist": {
+      "min": 0.0,
+      "median": 0.28500000000000003,
+      "max": 1.53
+    },
+    "synthetic_vb_mean": 0.1533,
+    "synthetic_intrinsic_noise_vb": 0.0123,
+    "real_share_of_blend": 0.1078,
+    "nasa_speed_feature": "constant per material (150 M / 200 K m/min default, not measured)",
+    "nasa_ra_label": "imputed from feed+VB, not measured"
+  },
+  "shipped_on_synthetic_holdout": {
+    "rmse_vb": 0.0297,
+    "mae_vb": 0.0166,
+    "bias_vb": 0.0002,
+    "n": 5000,
+    "rmse_ra": 0.2055,
+    "mae_ra": 0.1417
+  },
+  "shipped_on_nasa_train_rows": {
+    "rmse_vb": 0.2501,
+    "mae_vb": 0.1918,
+    "bias_vb": -0.0162,
+    "n": 145
+  },
+  "shipped_on_nasa_heldout_runs": {
+    "rmse_vb": 0.1888,
+    "mae_vb": 0.1517,
+    "bias_vb": -0.0261,
+    "n": 29,
+    "corr_vb": 0.26
+  },
+  "baseline_mean_on_heldout": {
+    "rmse_vb": 0.1908,
+    "constant_vb_mm": 0.3386,
+    "n": 29
+  },
+  "fit_curves": [
+    {
+      "epochs": 15,
+      "final_train_mse_normalised": 0.23058,
+      "train_rows": {
+        "rmse_vb": 0.0893,
+        "mae_vb": 0.0382,
+        "bias_vb": 0.006,
+        "n": 1316
+      },
+      "synthetic_holdout": {
+        "rmse_vb": 0.0449,
+        "mae_vb": 0.0232,
+        "bias_vb": 0.0085,
+        "n": 5000
+      },
+      "nasa_heldout_runs": {
+        "rmse_vb": 0.1931,
+        "mae_vb": 0.154,
+        "bias_vb": -0.0456,
+        "n": 29
+      }
+    },
+    {
+      "epochs": 30,
+      "final_train_mse_normalised": 0.20798,
+      "train_rows": {
+        "rmse_vb": 0.0854,
+        "mae_vb": 0.0342,
+        "bias_vb": -0.004,
+        "n": 1316
+      },
+      "synthetic_holdout": {
+        "rmse_vb": 0.0387,
+        "mae_vb": 0.0193,
+        "bias_vb": -0.003,
+        "n": 5000
+      },
+      "nasa_heldout_runs": {
+        "rmse_vb": 0.1922,
+        "mae_vb": 0.1542,
+        "bias_vb": -0.0335,
+        "n": 29
+      }
+    },
+    {
+      "epochs": 60,
+      "final_train_mse_normalised": 0.19162,
+      "train_rows": {
+        "rmse_vb": 0.0825,
+        "mae_vb": 0.0321,
+        "bias_vb": 0.0006,
+        "n": 1316
+      },
+      "synthetic_holdout": {
+        "rmse_vb": 0.0304,
+        "mae_vb": 0.0168,
+        "bias_vb": 0.0006,
+        "n": 5000
+      },
+      "nasa_heldout_runs": {
+        "rmse_vb": 0.1909,
+        "mae_vb": 0.1537,
+        "bias_vb": -0.0182,
+        "n": 29
+      }
+    },
+    {
+      "epochs": 120,
+      "final_train_mse_normalised": 0.18636,
+      "train_rows": {
+        "rmse_vb": 0.0805,
+        "mae_vb": 0.0305,
+        "bias_vb": 0.0049,
+        "n": 1316
+      },
+      "synthetic_holdout": {
+        "rmse_vb": 0.0218,
+        "mae_vb": 0.0149,
+        "bias_vb": 0.0065,
+        "n": 5000
+      },
+      "nasa_heldout_runs": {
+        "rmse_vb": 0.1929,
+        "mae_vb": 0.1536,
+        "bias_vb": -0.0292,
+        "n": 29
+      }
+    }
+  ],
+  "synthetic_only_on_nasa_heldout": {
+    "rmse_vb": 0.2633,
+    "mae_vb": 0.197,
+    "bias_vb": -0.1541,
+    "n": 29
+  },
+  "nasa_only_on_nasa_heldout": {
+    "rmse_vb": 0.1872,
+    "mae_vb": 0.1516,
+    "bias_vb": -0.0095,
+    "n": 29
+  },
+  "wall_time_s": 7.0
+}

@@ -112,7 +112,7 @@ def load_unified_windows(
     if use_cache:
         UNIFIED_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(UNIFIED_CACHE_PATH, X=X, y=y, groups=groups,
-                            _cache_key=np.array(cache_key, dtype=object))
+                            _cache_key=np.array(cache_key))
     return _select(X, y, groups, split)
 
 

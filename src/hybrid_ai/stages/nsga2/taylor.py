@@ -45,13 +45,18 @@ Z_EXPONENT = 0.2
 F_EXPONENT = 0.2
 
 #: ``(n, V0_mpm, T0_min)`` per ISO group. ``K`` follows as V0 * T0 ** n.
+#: Calibrated so the nominal points sit inside handbook life bands at
+#: f ~ 0.25 mm/rev, a_p ~ 1.5 mm: P ~ 20-35 min at 200-250 m/min,
+#: M ~ 25 min at 150, K ~ 22 min at 180, N ~ 70 min at 600, and
+#: S ~ 9 min at 70 m/min (Inconel at 40-100 m/min runs from about an
+#: hour down to a few minutes, matching published turning/milling data).
 TAYLOR_TABLE: dict[ISOMaterialGroup, tuple[float, float, float]] = {
     # group: (n, reference speed m/min, reference life min)
     "P": (0.25, 200.0, 10.0),
-    "M": (0.20, 150.0, 10.0),
+    "M": (0.25, 150.0, 7.0),
     "K": (0.25, 180.0, 10.0),
-    "N": (0.28, 600.0, 10.0),
-    "S": (0.20, 60.0, 10.0),
+    "N": (0.28, 600.0, 30.0),
+    "S": (0.30, 60.0, 5.0),
 }
 
 #: Life bounds kept identical to the optimiser's so the two are comparable.

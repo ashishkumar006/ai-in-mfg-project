@@ -17,6 +17,7 @@ pymoo>=0.6.0
 
 # Data layer
 SQLAlchemy>=2.0
+h5py>=3.10
 
 # Rule engine (CLIPS Python bindings)
 clipsPy>=0.5

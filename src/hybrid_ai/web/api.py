@@ -126,13 +126,16 @@ def status() -> dict:
             "cnn_lstm": tool_models._cnn_lstm is not None,
             "cnn_bilstm_phm": tool_models._big is not None,
             "turning": tool_models._turning is not None,
+            "luh": tool_models.get_luh() is not None,
         },
         "checkpoints": {
             name: (models_dir / name).exists()
             for name in ("nasa_mlp.pt", "nasa_cnn1d.pt",
                          "nasa_cnn_lstm.pt", "phm_cnn_bilstm.pt",
-                         "vicomtech_hgbr.joblib")
+                         "vicomtech_hgbr.joblib", "luh_hgbr.joblib")
         },
+        "checkpoint_files": len(list(models_dir.glob("*.pt")))
+        + len(list(models_dir.glob("*.joblib"))),
         "data": {
             "nasa": (ROOT / "data" / "raw" / "nasa_milling.parquet").exists(),
             "phm": (ROOT / "data" / "raw" / "phm2010_highres.csv").exists(),

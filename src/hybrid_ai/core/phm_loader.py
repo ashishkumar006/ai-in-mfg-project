@@ -140,7 +140,7 @@ def load_phm_windows(
         cache.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(
             cache, X=X, y=y, groups=groups,
-            _cache_key=np.array(cache_key, dtype=object),
+            _cache_key=np.array(cache_key),
         )
     return _select_split(X, y, groups, split)
 

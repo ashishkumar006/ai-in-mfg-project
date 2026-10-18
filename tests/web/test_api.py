@@ -34,6 +34,8 @@ def test_capp_drilling_selects_drill() -> None:
     body = client.post("/api/capp", json={**PART, "operation": "drilling"}).json()
     assert body["selected"]["insert_code"] == "SDMX090308-P2"
     assert body["envelope"] is not None
+    assert body["setup"]["operation"] == "drilling"
+    assert body["setup"]["steps"]
 
 
 def test_capp_no_match_reports_why(monkeypatch) -> None:
@@ -172,6 +174,11 @@ def test_compare_without_match_is_422(monkeypatch) -> None:
 def test_model_metrics_table() -> None:
     rows = client.get("/api/model_metrics").json()["rows"]
     assert {r["model"] for r in rows} >= {"MLP", "CNN-BiLSTM", "HGBR"}
+    for r in rows:
+        if "error" in r:
+            continue
+        assert isinstance(r.get("holdout"), bool), f"{r['model']} has no holdout flag"
+        assert r.get("eval"), f"{r['model']} has no eval label"
 
 
 def test_frontend_serves() -> None:

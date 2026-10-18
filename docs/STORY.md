@@ -168,7 +168,8 @@ explain them to a skeptical colleague — with the grade each earned:
 - **MLP, blended (5,058 params) — grade: reliable workhorse.** Trains
   on synthetic breadth plus NASA reality in one 11-feature schema.
   Monotonic (push harder → predicts more wear, every time), always
-  in-range, RMSE 0.08 on 1,345 holdout rows. It drives the optimiser
+  in-range, RMSE 0.154 mm on the real-data scoreboard (1,345 rows).
+  It drives the optimiser
   because it's fast (0.2 ms) and sane everywhere.
 - **CNN-BiLSTM flagship (1,000,579 params) — grade: star pupil, with
   a note home.** Three convolutional blocks, a two-way LSTM with
@@ -180,6 +181,10 @@ explain them to a skeptical colleague — with the grade each earned:
 - **Turning HGBR — grade: quiet achiever.** Gradient boosting on
   Vicomtech's native features: 0.026 vs 0.066 baseline on two unseen
   tools. Small, fast, honest.
+- **LUH HGBR — grade: straight A.** The same idea on Leibniz
+  Universität Hannover's milling signals plus log contact time: 0.007
+  vs 0.030 baseline across nine unseen cutters on three machines,
+  over the whole life (VB 3→160 µm).
 - **CNN1D / CNN-LSTM (NASA) — grade: participation award.** Trained on
   145 windows, evaluated on the same 145 — in-sample scores that
   flatter them, and they hit the physical clips outside milling. Kept

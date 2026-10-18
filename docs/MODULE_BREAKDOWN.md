@@ -4,6 +4,12 @@ Five team members, four pipeline stages, one shared core. Each owner
 delivers a subpackage, a notebook, and a test set, then plugs their
 output into the shared dashboard.
 
+> **As-built note (final round).** The pipeline grew well past this
+> plan — the live tree is `PROJECT.md` §9. Per-stage notebooks were
+> superseded by the check scripts under `scripts/checks/` and the two
+> dashboards; `notebooks/` now holds the Colab training script, and the
+> planned `data/` package merged into `core/` (SQLite loader included).
+
 ## Owner map
 
 | # | Owner | Module | Package path | Notebook |

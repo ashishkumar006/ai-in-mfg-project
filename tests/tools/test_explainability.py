@@ -63,6 +63,13 @@ def test_compare_models_tiers_rows_and_reports_spread() -> None:
     assert spread is not None
     vbs = [r["v_b_mm"] for r in prod if r["v_b_mm"] is not None]
     assert abs(spread - (max(vbs) - min(vbs))) < 1e-6
+    for r in body["rows"]:
+        assert r.get("basis") in {"point", "reference-window"}, r["model"]
+    for r in body["rows"]:
+        if r.get("basis") == "reference-window" and r.get("v_b_mm") is not None:
+            assert r.get("true_v_b_mm") is not None, r["model"]
+            assert r.get("vb_error_mm") is not None, r["model"]
+            assert abs(r["vb_error_mm"] - (r["v_b_mm"] - r["true_v_b_mm"])) < 0.002
 
 
 def test_reference_models_excluded_from_spread() -> None:

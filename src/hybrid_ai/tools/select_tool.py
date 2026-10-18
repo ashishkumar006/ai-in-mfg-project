@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 from hybrid_ai.core.schemas import PartSpec
-from hybrid_ai.stages.clips.rules import build_capp_sheet, build_rules, rank_tools
+from hybrid_ai.stages.clips.rules import (
+    build_capp_sheet,
+    build_rules,
+    build_setup_plan,
+    rank_tools,
+)
 from hybrid_ai.tools import _models
 from hybrid_ai.tools.schemas import PART_SCHEMA
 
 TOOL_SPEC: dict = {
     "name": "select_tool",
     "description": ("Pick the best catalog insert for a part spec and return "
-                    "the CAPP operation plan, ranked candidates, selected tool, "
+                    "the CAPP operation plan, a setup & fixturing plan "
+                    "(workholding, datums, clamping, tool holding, steps), "
+                    "ranked candidates, selected tool, "
                     "recommended envelope and planner notes. When nothing "
                     "matches, explains per-rule survival counts plus closest inserts."),
     "parameters": {
@@ -35,6 +42,8 @@ def run(part: PartSpec) -> dict:
         "envelope": envelope,
         "notes": notes,
     }
+    if selected is not None:
+        body["setup"] = build_setup_plan(part, selected)
     if selected is None:
         rules = build_rules()
         body["no_match"] = {

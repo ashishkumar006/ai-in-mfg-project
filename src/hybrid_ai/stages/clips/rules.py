@@ -317,6 +317,131 @@ def _plan_operations(part: PartSpec) -> list[str]:
     return plan
 
 
+def build_setup_plan(part: PartSpec, tool: ToolCandidate | None) -> dict:
+    """Setup & fixturing plan for a part (deliverable 1: process planning).
+
+    Rules off the operation, machine class, material group and finish
+    target: a first-cut plan for a planner to review, not a fixture design.
+
+    Parameters
+    ----------
+    part:
+        Part specification driving the plan.
+    tool:
+        Selected insert, or ``None`` when the catalog has no match.
+
+    Returns
+    -------
+    dict
+        Workholding, datums, clamping, tool holding, an ordered ``steps``
+        list, ``setup_count`` and planner ``notes``.
+    """
+    holder = tool.insert_code if tool is not None else "the selected insert"
+    op = part.operation
+
+    if op in {"turning", "facing"}:
+        plan: dict = {
+            "workholding": (
+                "3-jaw self-centring chuck for chucked work, or a collet chuck "
+                "for bar stock; soft jaws once the diameter is finished"
+            ),
+            "datums": (
+                "Z0 on the finished face, X0 on the spindle axis; face and "
+                "centre the blank before the first pass"
+            ),
+            "clamping": (
+                "clamp on the largest rigid diameter; keep overhang under "
+                "3x diameter"
+            ),
+            "tool_holding": f"ISO 5608 turning holder for {holder}, set on centre",
+            "setup_count": 2 if op == "facing" else 1,
+        }
+        steps = [
+            "Load and indicate the blank (runout < 0.02 mm)",
+            "Face and centre, set Z0",
+            "Rough, leaving 0.3 mm finish allowance",
+            "Finish with the selected insert",
+            "Part off / second operation if required",
+        ]
+    elif op == "drilling":
+        plan = {
+            "workholding": (
+                "machine vise or fixture plate with a sacrificial backing "
+                "plate; drill bushings for repeat batches"
+            ),
+            "datums": "X/Y from two edges or a pinned hole, Z0 on the top face",
+            "clamping": (
+                "back the exit face to limit breakout burrs; keep clamps clear "
+                "of the hole pattern"
+            ),
+            "tool_holding": f"collet or drill chuck for {holder}, shortest gauge length",
+            "setup_count": 1,
+        }
+        steps = [
+            "Load the blank on the backing plate",
+            "Probe X/Y and the top face",
+            "Peck drill per the cutting plan",
+            "Break through at reduced feed",
+            "Spot-face / deburr if required",
+        ]
+    elif op == "boring":
+        plan = {
+            "workholding": (
+                "chuck or fixture plate with bored soft jaws holding on the "
+                "finished diameter"
+            ),
+            "datums": "Z0 on the finished face, bore axis as X0/Y0",
+            "clamping": "clamp on the outer diameter only; do not distort the bore",
+            "tool_holding": f"boring head or boring bar holder for {holder}",
+            "setup_count": 1,
+        }
+        steps = [
+            "Load and indicate the part (runout < 0.02 mm)",
+            "Set the bore axis from the datum",
+            "Rough bore, leaving 0.2 mm",
+            "Finish bore and measure",
+            "Deburr and inspect",
+        ]
+    else:
+        plan = {
+            "workholding": (
+                "precision machine vise on a fixture plate; low-profile clamps "
+                "on a sub-plate for thin or long parts"
+            ),
+            "datums": (
+                "Z0 on the top face, X/Y from two machined edges; probe the "
+                "blank before roughing"
+            ),
+            "clamping": (
+                "support directly under the cut; keep clamps clear of faces "
+                "machined in the same setup"
+            ),
+            "tool_holding": f"BT40/CAT40 collet or side-lock holder for {holder}",
+            "setup_count": 1,
+        }
+        steps = [
+            "Mount and indicate the vise or sub-plate square",
+            "Load the blank with 3-5 mm above the jaws, probe X/Y/Z",
+            "Adaptive roughing with coolant, leaving 0.3 mm",
+            "Semi-finish and finish walls and floor",
+            "Deburr and inspect before unloading",
+        ]
+
+    notes: list[str] = []
+    if part.machine == "light":
+        notes.append("Light machine: keep ap inside the envelope and add a sub-plate for rigidity.")
+    elif part.machine == "heavy":
+        notes.append("Heavy machine: preload the clamps and watch spindle load near the envelope top.")
+    if part.iso_group == "S":
+        notes.append("Superalloy: rigid setup plus high-pressure coolant through the tool if available.")
+    if part.target_ra_um <= 1.0:
+        notes.append("Tight finish: clean jaws/vise faces and take a light spring pass before the finish cut.")
+
+    plan.update({"operation": op, "machine_class": part.machine,
+                 "steps": steps, "notes": notes})
+    return plan
+
+
 def _build_notes(part: PartSpec, tool: ToolCandidate | None) -> list[str]:
     notes: list[str] = []
     if tool is None:

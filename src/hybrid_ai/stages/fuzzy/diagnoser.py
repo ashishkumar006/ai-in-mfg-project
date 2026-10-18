@@ -33,9 +33,13 @@ class FuzzyThresholds:
     ra_mid: float = 1.6
     ra_high: float = 2.4
 
-    vib_low: float = 0.8
-    vib_mid: float = 1.5
-    vib_high: float = 2.2
+    #: Vibration bands calibrated to the real NASA milling windows
+    #: (table/spindle RMS: median ~0.9 g, worst ~2.0 g, driven by depth
+    #: of cut). The earlier 0.8/1.5/2.2 bands rejected nominal steel
+    #: speeds and every aluminium setting as "caution" or worse.
+    vib_low: float = 1.0
+    vib_mid: float = 1.7
+    vib_high: float = 2.4
 
     @classmethod
     def for_target(cls, target_ra_um: float) -> FuzzyThresholds:

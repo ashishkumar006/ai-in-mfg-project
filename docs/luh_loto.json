@@ -1,0 +1,62 @@
+{
+  "n_rows": 6418,
+  "n_tools": 9,
+  "vb_um_range": [
+    3.0,
+    160.0
+  ],
+  "variants": {
+    "signals": {
+      "pooled_rmse_vb_mm": 0.011896136099871281,
+      "baseline_train_mean_pooled_rmse_vb_mm": 0.03017987548501201,
+      "per_tool_rmse_vb_mm": {
+        "1": 0.013608983265436218,
+        "2": 0.011586721794711534,
+        "3": 0.016228320688251117,
+        "4": 0.0058150731667869675,
+        "5": 0.007890527893958148,
+        "6": 0.004881334841123022,
+        "7": 0.015428915849580773,
+        "8": 0.014919678287104188,
+        "9": 0.016449840014853234
+      }
+    },
+    "signals_logC": {
+      "pooled_rmse_vb_mm": 0.006776092430578162,
+      "baseline_train_mean_pooled_rmse_vb_mm": 0.03017987548501201,
+      "per_tool_rmse_vb_mm": {
+        "1": 0.011932465310117255,
+        "2": 0.00892676395218455,
+        "3": 0.00619851312027502,
+        "4": 0.0025518439881074308,
+        "5": 0.006547744571597627,
+        "6": 0.0030833263972025993,
+        "7": 0.0055701676018947615,
+        "8": 0.007351753710481842,
+        "9": 0.007148118428632281
+      }
+    }
+  },
+  "note": "LUH/KIT milling (Mendeley zpxs87bjt8), full dataset (6,418 runs); 9-tool leave-one-tool-out; the shipped checkpoint (models/luh_hgbr.joblib, scripts/training/train_luh_hgbr.py) refits on all 9 tools after this evaluation",
+  "c_only_linear_reference": {
+    "pooled_rmse_vb_mm": 0.016746479595039884
+  },
+  "feature_names": [
+    "force_x_rms_n",
+    "force_y_rms_n",
+    "force_z_rms_n",
+    "mag_mean_n",
+    "mag_std_n",
+    "mag_kurt",
+    "mag_skew",
+    "mag_band_0_500_log",
+    "mag_band_500_2k_log",
+    "mag_band_2k_6k_log",
+    "mag_band_6k_10k_log",
+    "torque_spindle_mean",
+    "torque_spindle_std",
+    "torque_spindle_kurt",
+    "control_dev_x_std",
+    "control_dev_y_std"
+  ]
+}

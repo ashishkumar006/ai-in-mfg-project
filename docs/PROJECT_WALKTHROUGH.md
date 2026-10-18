@@ -1,4 +1,4 @@
-# Pipeline Walkthrough
+# Project Walkthrough
 
 A step-by-step explanation of what the Hybrid AI-Expert System actually
 does, from the moment a user fills the dashboard form to the moment
@@ -16,7 +16,8 @@ PartSpec  →  CLIPS (rules)  →  ANN (predict)  →  Fuzzy (diagnose)
 ```
 
 Four pipeline stages, one shared data vocabulary (`core/schemas.py`),
-one Streamlit dashboard that calls them in order.
+the dashboards calling them in order (Streamlit classic + the FastAPI
+web UI).
 
 ---
 
@@ -41,7 +42,7 @@ PartSpec(
 
 When the user presses **Run pipeline**, the dashboard:
 
-1. Trains (or loads from cache) the ANN on synthetic data
+1. Loads the shipped blended MLP (`models/nasa_mlp.pt`; trains only if missing)
 2. Loads the tool catalog from the in-memory SQLite repository
 3. Calls `build_capp_sheet(part, catalog)` from the CLIPS module
 4. Renders four tabs: CAPP, Pareto, Diagnosis, Pipeline trace

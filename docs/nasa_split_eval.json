@@ -1,0 +1,107 @@
+{
+  "scheme": "fixed split, runs % 4 == 0 held out",
+  "test_runs": [
+    4,
+    8,
+    12,
+    16,
+    20
+  ],
+  "n_test_rows": 29,
+  "n_train_nasa_rows": 116,
+  "recipe": "1200 synthetic + train runs, 120 epochs, hidden (64, 64)",
+  "per_seed": {
+    "42": {
+      "rmse_vb_mm": 0.1937,
+      "mae_vb_mm": 0.1536,
+      "bias_vb_mm": -0.0339,
+      "pearson_r_vb": 0.258,
+      "rmse_ra_um": 0.1338,
+      "within_0p05_mm": 0.241,
+      "within_0p10_mm": 0.31
+    },
+    "43": {
+      "rmse_vb_mm": 0.1888,
+      "mae_vb_mm": 0.1527,
+      "bias_vb_mm": -0.0166,
+      "pearson_r_vb": 0.255,
+      "rmse_ra_um": 0.1071,
+      "within_0p05_mm": 0.172,
+      "within_0p10_mm": 0.414
+    },
+    "44": {
+      "rmse_vb_mm": 0.189,
+      "mae_vb_mm": 0.1533,
+      "bias_vb_mm": -0.0215,
+      "pearson_r_vb": 0.249,
+      "rmse_ra_um": 0.1099,
+      "within_0p05_mm": 0.172,
+      "within_0p10_mm": 0.414
+    }
+  },
+  "rmse_spread_across_seeds_mm": [
+    0.1888,
+    0.1937
+  ],
+  "mean_pairwise_prediction_difference_mm": 0.0221,
+  "band_agreement_pct": 41.4,
+  "band_matrix": {
+    "fresh": {
+      "fresh": 0,
+      "steady": 0,
+      "worn": 0
+    },
+    "steady": {
+      "fresh": 4,
+      "steady": 7,
+      "worn": 10
+    },
+    "worn": {
+      "fresh": 1,
+      "steady": 2,
+      "worn": 5
+    }
+  },
+  "per_run": [
+    {
+      "run": 4,
+      "n": 11,
+      "rmse_vb_mm": 0.1808,
+      "bias_vb_mm": 0.1214
+    },
+    {
+      "run": 8,
+      "n": 9,
+      "rmse_vb_mm": 0.164,
+      "bias_vb_mm": -0.0632
+    },
+    {
+      "run": 12,
+      "n": 6,
+      "rmse_vb_mm": 0.2019,
+      "bias_vb_mm": -0.1571
+    },
+    {
+      "run": 16,
+      "n": 2,
+      "rmse_vb_mm": 0.2498,
+      "bias_vb_mm": -0.233
+    },
+    {
+      "run": 20,
+      "n": 1,
+      "rmse_vb_mm": 0.343,
+      "bias_vb_mm": -0.343
+    }
+  ],
+  "shipped_model_seen_in_training": {
+    "rmse_vb_mm": 0.1885,
+    "mae_vb_mm": 0.1514,
+    "bias_vb_mm": -0.0252,
+    "pearson_r_vb": 0.261,
+    "rmse_ra_um": 0.1172,
+    "within_0p05_mm": 0.207,
+    "within_0p10_mm": 0.379
+  },
+  "elapsed_s": 8.5
+}

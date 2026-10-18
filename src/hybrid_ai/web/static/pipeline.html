@@ -1,10 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>How the Pipeline Works â€” Hybrid AI Manufacturing</title>
- <link rel="stylesheet" href="styles.css?v=8">
+<title>How the Pipeline Works — Hybrid AI Manufacturing</title>
+ <link rel="stylesheet" href="styles.css?v=16">
 <script>try{var t=localStorage.getItem("hai-theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body>
@@ -14,12 +14,12 @@
     <a class="logo logo-link" href="/">H</a>
     <div>
       <div class="title">How this pipeline works</div>
-      <div class="subtitle">Four stages, one part, no magic â€” every number traceable</div>
+      <div class="subtitle">Four stages, one part, no magic — every number traceable</div>
     </div>
   </div>
   <div class="top-actions">
     <button id="theme-btn" class="btn ghost" title="Toggle light / dark theme" aria-label="Toggle light or dark theme">Dark</button>
-    <a class="btn ghost" href="/">â† Back to the console</a>
+    <a class="btn ghost" href="/">← Back to the console</a>
   </div>
 </header>
 
@@ -31,7 +31,7 @@
       A machinist says "turn this 4140 steel shaft, I want a decent finish".
       That single sentence has to become: <b>which insert</b>, <b>how fast</b>,
       <b>how deep</b>, and <b>is it safe</b>. Four very different kinds of
-      reasoning are needed, and no single method handles all four well â€” so the
+      reasoning are needed, and no single method handles all four well — so the
       system uses four and wires them together.
     </p>
   </div>
@@ -44,8 +44,8 @@
         <div class="tour-head">
           <span class="tour-num">1</span>
           <div>
-            <h2>CLIPS rules â€” what to cut with</h2>
-            <p class="tour-sub">Symbolic reasoning Â· expert knowledge written as if-then rules</p>
+            <h2>CLIPS rules — what to cut with</h2>
+            <p class="tour-sub">Symbolic reasoning · expert knowledge written as if-then rules</p>
           </div>
         </div>
         <div class="tour-body">
@@ -59,10 +59,10 @@
             <div>
               <h4>What it does</h4>
               <ul>
-                <li>Filters the 15-insert catalog by ISO material group and operation</li>
+                <li>Filters the 50-insert catalog by ISO material group and operation</li>
                 <li>Ranks the survivors against group-typical cutting data</li>
                 <li>Returns an <b>envelope</b>: the safe range of speed, feed, depth</li>
-                <li>Emits a CAPP operation plan (setup â†’ rough â†’ finish â†’ inspect)</li>
+                <li>Emits a CAPP operation plan (setup &amp; fixturing → rough → finish → inspect)</li>
               </ul>
             </div>
             <div>
@@ -73,12 +73,14 @@
                 distribution. Rules are inspectable and always give a reason.
               </p>
               <div class="tour-callout">
-                Tested on all 75 combinations of operation Ã— ISO group Ã— machine class:
-                42 matched, 33 explained why nothing matched.
+                Tested on all 75 combinations of operation × ISO group × machine
+                class: all 75 matched. The no-match path is still built and
+                unit-tested — when a catalog cannot cover a cell it says why and
+                lists the closest inserts, instead of failing silently.
               </div>
             </div>
           </div>
-          <div class="tour-io"><span class="in">IN</span> part spec <span class="arrow">â†’</span> <b>insert + envelope + plan</b></div>
+          <div class="tour-io"><span class="in">IN</span> part spec <span class="arrow">→</span> <b>insert + envelope + plan</b></div>
         </div>
       </article>
 
@@ -86,13 +88,13 @@
         <div class="tour-head">
           <span class="tour-num">2</span>
           <div>
-            <h2>Neural network â€” how worn will it get?</h2>
-            <p class="tour-sub">Learned prediction Â· flank wear V<sub>B</sub> and roughness R<sub>a</sub></p>
+            <h2>Neural network — how worn will it get?</h2>
+            <p class="tour-sub">Learned prediction · flank wear V<sub>B</sub> and roughness R<sub>a</sub></p>
           </div>
         </div>
         <div class="tour-body">
           <p>
-            Tool wear is nonlinear. Doubling cutting speed does not double the wear â€”
+            Tool wear is nonlinear. Doubling cutting speed does not double the wear —
             it compounds it, together with feed and depth. That interaction is exactly
             what neural networks are good at learning from real machining runs.
           </p>
@@ -100,28 +102,41 @@
             <div>
               <h4>What it predicts</h4>
               <ul>
-                <li><b>V<sub>B</sub></b> â€” flank wear in mm, 0 â†’ 1.5</li>
-                <li><b>R<sub>a</sub></b> â€” surface roughness in Âµm, 0.2 â†’ 6.0</li>
+                <li><b>V<sub>B</sub></b> — flank wear in mm, 0 → 1.5</li>
+                <li><b>R<sub>a</sub></b> — surface roughness in µm, 0.2 → 6.0</li>
                 <li>MC-dropout spread, so the UI can say how sure it is</li>
               </ul>
-              <p>Outputs are clipped to physically possible ranges â€” the model can never report wear beyond what a tool could physically reach.</p>
+              <p>Outputs are clipped to physically possible ranges — the model can never report wear beyond what a tool could physically reach.</p>
             </div>
             <div>
-              <h4>Which model actually earns its place</h4>
-              <table class="data">
-                <tr><th>Model</th><th>RMSE</th><th>Tested on</th></tr>
-                <tr><td><b>CNN-BiLSTM</b></td><td><b>0.017</b></td><td>unseen cutter</td></tr>
-                <tr><td>HGBR</td><td>0.026</td><td>unseen tools</td></tr>
-                <tr><td>MLP</td><td>0.085</td><td>blended</td></tr>
-              </table>
+              <h4>The model behind the console</h4>
+              <p>
+                The console runs one wear model: the MLP shipped as
+                <code>nasa_mlp.pt</code>. It is trained on synthetic mechanics
+                <i>plus</i> the real NASA milling runs (1200 synthetic + 145 NASA
+                rows), so it is a blended generalist — not a NASA-only model.
+                No model picker, no knobs: the same frozen model answers every
+                request.
+              </p>
+              <p>
+                Six trained models ship wired in: the MLP, two NASA CNNs, the
+                PHM CNN-BiLSTM, and the Vicomtech and LUH HGBRs. The dashboard's
+                model table compares them side by side. The console's
+                lab-condition picker swaps in a lab's material and operation and
+                tells you which lab model covers it — but the live prediction
+                still comes from the MLP.
+              </p>
               <div class="tour-callout warn">
-                Honest caveat: the flagship is accurate on <i>unseen cutters</i>, but
-                in the heavily worn band it under-predicts by ~0.03 mm. A worn tool
-                can read as healthier than it is.
+                Honest numbers: under leave-one-cutter-out on NASA the MLP lands
+                within ~0.25 mm RMSE of measured wear, versus ~0.26 mm for
+                always guessing the average — while the lab models on their own
+                sensor-rich data reach 0.007–0.026 mm. Trust it to rank
+                settings, not to promise an exact wear value — the fuzzy gate
+                below makes the final call.
               </div>
             </div>
           </div>
-          <div class="tour-io"><span class="in">IN</span> insert + operating point <span class="arrow">â†’</span> <b>V<sub>B</sub>, R<sub>a</sub></b></div>
+          <div class="tour-io"><span class="in">IN</span> insert + operating point <span class="arrow">→</span> <b>V<sub>B</sub>, R<sub>a</sub></b></div>
         </div>
       </article>
 
@@ -129,13 +144,13 @@
         <div class="tour-head">
           <span class="tour-num">3</span>
           <div>
-            <h2>Fuzzy logic â€” safe, caution, or stop?</h2>
-            <p class="tour-sub">Fuzzy inference Â· graded verdicts with a stated reason</p>
+            <h2>Fuzzy logic — safe, caution, or stop?</h2>
+            <p class="tour-sub">Fuzzy inference · graded verdicts with a stated reason</p>
           </div>
         </div>
         <div class="tour-body">
           <p>
-            Numbers alone do not tell an operator what to do. "R<sub>a</sub> = 1.9 Âµm"
+            Numbers alone do not tell an operator what to do. "R<sub>a</sub> = 1.9 µm"
             is meaningless without knowing the <i>tolerance</i>. Fuzzy logic grades the
             verdict instead of forcing a hard yes/no, and it scales with the part's
             own finish requirement.
@@ -145,28 +160,28 @@
               <h4>Three bands, three inputs</h4>
               <p>Wear, roughness and vibration are each mapped through trapezoids:</p>
               <table class="data">
-                <tr><th>Input</th><th>Safe â†’</th><th>Caution â†’</th><th>Critical â†’</th></tr>
+                <tr><th>Input</th><th>Safe →</th><th>Caution →</th><th>Critical →</th></tr>
                 <tr><td>V<sub>B</sub></td><td>0.15</td><td>0.30</td><td>0.45 mm</td></tr>
-                <tr><td>R<sub>a</sub></td><td>0.8</td><td>1.6</td><td>2.4 Âµm</td></tr>
-                <tr><td>Vibration</td><td>0.8</td><td>1.5</td><td>2.2 g</td></tr>
+                <tr><td>R<sub>a</sub></td><td>0.8</td><td>1.6</td><td>2.4 µm</td></tr>
+                <tr><td>Vibration</td><td>1.0</td><td>1.7</td><td>2.4 g</td></tr>
               </table>
-              <p class="hint">R<sub>a</sub> thresholds scale by target tolerance â€” asking for 0.8 Âµm tightens every band.</p>
+              <p class="hint">R<sub>a</sub> thresholds scale by target tolerance — asking for 0.8 µm tightens every band.</p>
             </div>
             <div>
               <h4>Why fuzzy instead of a threshold</h4>
               <p>
-                Hard thresholds make the verdict flip discontinuously: 1.59 Âµm is
-                "fine", 1.61 Âµm is "reject". Fuzzy membership degrades smoothly, so
+                Hard thresholds make the verdict flip discontinuously: 1.59 µm is
+                "fine", 1.61 µm is "reject". Fuzzy membership degrades smoothly, so
                 a point near the boundary is described as <i>borderline</i> instead
                 of pretending to false confidence.
               </p>
               <div class="tour-callout">
-                Every verdict ships with its explanation string â€” the same wording the
+                Every verdict ships with its explanation string — the same wording the
                 operator would use.
               </div>
             </div>
           </div>
-          <div class="tour-io"><span class="in">IN</span> V<sub>B</sub>, R<sub>a</sub>, vibration, tolerance <span class="arrow">â†’</span> <b>state + reason</b></div>
+          <div class="tour-io"><span class="in">IN</span> V<sub>B</sub>, R<sub>a</sub>, vibration, tolerance <span class="arrow">→</span> <b>state + reason</b></div>
         </div>
       </article>
 
@@ -174,23 +189,23 @@
         <div class="tour-head">
           <span class="tour-num">4</span>
           <div>
-            <h2>NSGA-II â€” what is the best trade-off?</h2>
-            <p class="tour-sub">Evolutionary optimisation Â· output vs tool life vs finish</p>
+            <h2>NSGA-II — what is the best trade-off?</h2>
+            <p class="tour-sub">Evolutionary optimisation · output vs tool life vs finish</p>
           </div>
         </div>
         <div class="tour-body">
           <p>
             There is no single best cutting setting. Run fast and you get high output
             but a short tool life and a rougher finish. Run slow and life is long but
-            the cycle time suffers. Optimising one number throws the others away â€” so
+            the cycle time suffers. Optimising one number throws the others away — so
             this stage returns the whole <b>Pareto front</b> and lets the operator choose.
           </p>
           <div class="tour-cols">
             <div>
               <h4>The three objectives</h4>
               <ul>
-                <li><b>Maximise</b> output â€” MRR = depth Ã— feed Ã— speed</li>
-                <li><b>Maximise</b> tool life â€” from predicted wear</li>
+                <li><b>Maximise</b> output — MRR = depth × feed × speed</li>
+                <li><b>Maximise</b> tool life — extended Taylor equation, handbook constants</li>
                 <li><b>Minimise</b> roughness R<sub>a</sub></li>
               </ul>
               <p>
@@ -204,7 +219,7 @@
               <p>
                 Fuzzy diagnosis is wired in as a hard constraint. When
                 <b>safe-only</b> is on (the default), any setting the diagnoser
-                calls unsafe is infeasible â€” so the optimiser literally cannot
+                calls unsafe is infeasible — so the optimiser literally cannot
                 propose a dangerous cut.
               </p>
               <div class="tour-callout">
@@ -213,13 +228,13 @@
               </div>
             </div>
           </div>
-          <div class="tour-io"><span class="in">IN</span> envelope + fuzzy gate <span class="arrow">â†’</span> <b>Pareto front of safe settings</b></div>
+          <div class="tour-io"><span class="in">IN</span> envelope + fuzzy gate <span class="arrow">→</span> <b>Pareto front of safe settings</b></div>
         </div>
       </article>
 
       <article class="tour-slide" data-i="4">
         <div class="tour-head">
-          <span class="tour-num">âœ“</span>
+          <span class="tour-num">✓</span>
           <div>
             <h2>Putting it together</h2>
             <p class="tour-sub">Why four methods beat one clever method</p>
@@ -227,8 +242,8 @@
         </div>
         <div class="tour-body">
           <div class="tour-flow">
-            <span>Part</span><span class="arrow">â†’</span><span>Insert + envelope</span><span class="arrow">â†’</span>
-            <span>V<sub>B</sub>, R<sub>a</sub></span><span class="arrow">â†’</span><span>Verdict</span><span class="arrow">â†’</span>
+            <span>Part</span><span class="arrow">→</span><span>Insert + envelope</span><span class="arrow">→</span>
+            <span>V<sub>B</sub>, R<sub>a</sub></span><span class="arrow">→</span><span>Verdict</span><span class="arrow">→</span>
             <span>Best trade-offs</span>
           </div>
           <p>
@@ -241,42 +256,43 @@
             <div>
               <h4>What is guaranteed</h4>
               <ul>
-                <li>Every displayed number comes from a tool call â€” none are written by hand</li>
+                <li>Every displayed number comes from a tool call — none are written by hand</li>
                 <li>Predictions are clipped to physical limits</li>
-                <li>Safe-only is on by default, not opt-in</li>
+                <li>The front end only ever shows settings that passed the safety gate</li>
                 <li>Uncertain regions are flagged rather than hidden</li>
-                <li>Runs fully offline â€” no API keys, no model downloads</li>
+                <li>Runs fully offline — no API keys, no model downloads</li>
               </ul>
             </div>
             <div>
               <h4>What is honestly uncertain</h4>
               <ul>
                 <li>Roughness in the NASA data is <b>imputed</b>, not measured</li>
-                <li>Two comparison models overfit their small training sets</li>
-                <li>The worn-wear band under-predicts â€” treat near-limit predictions as optimistic</li>
+                <li>On unseen runs the deployed model is only modestly better than guessing the average wear</li>
+                <li>Each lab model (PHM, Vicomtech, LUH) is validated only inside its own regime — no cross-lab validation</li>
+                <li>The worn-wear band under-predicts — treat near-limit predictions as optimistic</li>
               </ul>
-              <a class="btn primary" href="/">Try it on your own part â†’</a>
+              <a class="btn primary" href="/">Try it on your own part →</a>
             </div>
           </div>
         </div>
       </article>
     </div>
 
-    <button class="tour-nav prev" id="tour-prev" type="button" aria-label="Previous stage">â€¹</button>
-    <button class="tour-nav next" id="tour-next" type="button" aria-label="Next stage">â€º</button>
+    <button class="tour-nav prev" id="tour-prev" type="button" aria-label="Previous stage">‹</button>
+    <button class="tour-nav next" id="tour-next" type="button" aria-label="Next stage">›</button>
   </div>
 
   <div class="tour-dots" id="tour-dots"></div>
 
   <div class="tour-foot">
-    <span class="hint">Use â† â†’ arrow keys, or click the dots.</span>
+    <span class="hint">Use ← → arrow keys, or click the dots.</span>
   </div>
 
 </div>
 
 <footer class="foot">
-  Hybrid AI Expert System Â· CLIPS â†’ ANN â†’ Fuzzy â†’ NSGA-II
-  Â· <a href="/">back to the console</a>
+  Hybrid AI Expert System · CLIPS → ANN → Fuzzy → NSGA-II
+  · <a href="/">back to the console</a>
 </footer>
 
 <script>

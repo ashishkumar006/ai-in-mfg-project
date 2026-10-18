@@ -8,13 +8,14 @@ Run from the project root::
 
 The demo walks three parts through all four stages
 (CLIPS -> ANN -> Fuzzy -> NSGA-II), then deep-dives the Pareto front
-for the headline steel-shaft part and compares the four ANN models.
+for the headline steel-shaft part and compares the six trained models.
 All visual artifacts land in ``demo_outputs/``:
 
 - ``pareto.html`` — interactive 3D Pareto front (open in a browser)
 - ``pareto.csv`` — the non-dominated operating points
 - ``capp_<PART>.json`` — CAPP sheet per showcase part
 - ``model_comparison.csv`` — MLP vs CNN1D vs CNN-LSTM vs PHM CNN-BiLSTM
+  vs turning HGBR vs LUH HGBR
 - ``SUMMARY.md`` — auto-generated presenter notes with the numbers
 """
 
@@ -39,7 +40,11 @@ from hybrid_ai.stages.ann.model import (
     WearRoughnessModel,
     predict_for_point,
 )
-from hybrid_ai.stages.clips.rules import build_capp_sheet, rank_tools
+from hybrid_ai.stages.clips.rules import (
+    build_capp_sheet,
+    build_setup_plan,
+    rank_tools,
+)
 from hybrid_ai.core.schemas import OperatingPoint, PartSpec, SensorReading
 from hybrid_ai.core.synthetic import (
     build_default_tool_catalog,
@@ -144,6 +149,13 @@ def _run_showcase_part(
     print(f"   Envelope: Vc {envelope['v_c_mpm']} m/min, "
           f"f {envelope['f_mmpr']} mm/rev, ap {envelope['ap_mm']} mm")
 
+    setup = build_setup_plan(part, selected)
+    print(f"   Setup & fixturing: {setup['workholding']}")
+    print(f"     datums: {setup['datums']}")
+    print(f"     clamping: {setup['clamping']}")
+    for i, step in enumerate(setup["steps"], 1):
+        print(f"     {i}. {step}")
+
     point = _midpoint(envelope)
     pred = predict_for_point(model, selected, point, hardness_hb=part.hardness_hb)
     sensor = _sensor_for_point(point)
@@ -201,6 +213,7 @@ def _run_showcase_part(
         "state": diag.state,
         "pareto_size": len(solutions),
         "operations": operations,
+        "setup": setup,
         "envelope": envelope,
         "notes": notes,
     }
@@ -319,6 +332,22 @@ def _compare_models(model: WearRoughnessModel, out_dir: Path) -> list[dict]:
     except Exception as exc:
         rows.append({"model": "HGBR (turning)",
                      "v_b_mm": f"unavailable ({exc})", "ra_um": "-"})
+    try:
+        from hybrid_ai.stages.ann.luh_model import LUHMillingModel
+        from hybrid_ai.core.luh_loader import load_luh_features
+
+        x16, vb_luh, contact_luh, _tools, _runs = load_luh_features()
+        k = int(np.argsort(vb_luh)[len(vb_luh) // 2])
+        luh = LUHMillingModel.load(MODELS_DIR / "luh_hgbr.joblib")
+        row_luh = LUHMillingModel.assemble(x16[k:k + 1], contact_luh[k:k + 1])
+        rows.append({"model": "HGBR (LUH)",
+                     "v_b_mm": round(float(luh.predict(row_luh)[0]), 3),
+                     "ra_um": "-"})
+        print(f"Real LUH run (in-sample ref; 9-tool LOTO 0.0068 mm): "
+              f"true V_B={vb_luh[k]:.3f} mm")
+    except Exception as exc:
+        rows.append({"model": "HGBR (LUH)",
+                     "v_b_mm": f"unavailable ({exc})", "ra_um": "-"})
     print(f"     {'ground truth':10s} V_B={true_vb:.3f} mm  R_a={true_ra:.3f} um")
     for r in rows:
         print(f"     {r['model']:10s} V_B={r['v_b_mm']} mm  R_a={r['ra_um']} um")
@@ -408,7 +437,8 @@ def main(argv: list[str] | None = None) -> dict:
             _, cands, sel, env, notes = build_capp_sheet(
                 next(p for p in SHOWCASE_PARTS if p.part_id == r["part_id"]), catalog)
             (out_dir / f"capp_{r['part_id']}.json").write_text(json.dumps(
-                {"operations": r["operations"], "selected": sel.to_dict(),
+                {"operations": r["operations"], "setup": r.get("setup"),
+                 "selected": sel.to_dict(),
                  "envelope": r["envelope"], "notes": r["notes"]},
                 indent=2, default=str))
 
